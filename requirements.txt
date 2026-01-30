@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic-settings
+
+paddlepaddle # cpu version
+paddleocr[all]

@@ -23,6 +23,10 @@ fastapi-clean-starter/
 
 ## 🚀 快速开始
 
+### 环境要求
+*   **Python**: `3.12.10` (或 3.9 - 3.13 之间的版本)
+*   **pip**: `20.2.2` 或更高版本
+
 1. 安装依赖：
    ```bash
    pip install -r requirements.txt

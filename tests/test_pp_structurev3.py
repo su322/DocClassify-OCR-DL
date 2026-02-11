@@ -50,3 +50,41 @@ def run_test():
 
 if __name__ == "__main__":
     run_test()
+
+# /Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/bin/python /Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/tests/test_pp_structurev3.py
+# 已生成测试图片: ./pp_structure_v3_demo.png
+# Checking connectivity to the model hosters, this may take a while. To bypass this check, set `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` to `True`.
+# 正在初始化 PPStructureV3 模型...
+# /Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+#   warnings.warn(warning_message)
+# Traceback (most recent call last):
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddleocr/_pipelines/base.py", line 105, in _create_paddlex_pipeline
+#     return create_pipeline(config=self._merged_paddlex_config, **kwargs)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddlex/inference/pipelines/__init__.py", line 168, in create_pipeline
+#     pipeline = BasePipeline.get(pipeline_name)(
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddlex/utils/deps.py", line 207, in _wrapper
+#     require_extra(extra, obj_name=pipeline_name, alt=alt)
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddlex/utils/deps.py", line 200, in require_extra
+#     raise DependencyError(msg)
+# paddlex.utils.deps.DependencyError: `PP-StructureV3` requires additional dependencies. To install them, run `pip install "paddlex[ocr]==<PADDLEX_VERSION>"` if you’re installing `paddlex` from an index, or `pip install -e "/path/to/PaddleX[ocr]"` if you’re installing `paddlex` locally.
+#
+# The above exception was the direct cause of the following exception:
+#
+# Traceback (most recent call last):
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/tests/test_pp_structurev3.py", line 52, in <module>
+#     run_test()
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/tests/test_pp_structurev3.py", line 33, in run_test
+#     pipeline = PPStructureV3(
+#                ^^^^^^^^^^^^^^
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddleocr/_pipelines/pp_structurev3.py", line 139, in __init__
+#     super().__init__(**kwargs)
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddleocr/_pipelines/base.py", line 67, in __init__
+#     self.paddlex_pipeline = self._create_paddlex_pipeline()
+#                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/.venv/lib/python3.12/site-packages/paddleocr/_pipelines/base.py", line 107, in _create_paddlex_pipeline
+#     raise RuntimeError(
+# RuntimeError: A dependency error occurred during pipeline creation. Please refer to the installation documentation to ensure all required dependencies are installed.
+#
+# 进程已结束，退出代码为 1

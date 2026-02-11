@@ -26,17 +26,17 @@ def run_test():
         return
 
     print("正在初始化 TextRecognition 模型...")
-    model = TextRecognition() 
+    model = TextRecognition()
     
     print(f"开始识别: {image_path}")
-    output = model.predict(input=image_path) 
+    output = model.predict(input=image_path)
     
     save_dir = "./output/TextRecognition_v5"
     os.makedirs(save_dir, exist_ok=True)
 
-    for res in output: 
-        res.print() 
-        res.save_to_img(save_path=save_dir) 
+    for res in output:
+        res.print()
+        res.save_to_img(save_path=save_dir)
         res.save_to_json(save_path=os.path.join(save_dir, "res.json"))
 
     print(f"完成。结果保存在 {save_dir}")

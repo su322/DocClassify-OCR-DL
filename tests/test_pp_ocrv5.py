@@ -26,7 +26,7 @@ def run_test():
 
     print("正在初始化 PaddleOCR...")
     # 文本检测+文本识别
-    ocr = PaddleOCR( 
+    ocr = PaddleOCR(
         use_doc_orientation_classify=False, 
         use_doc_unwarping=False, 
         use_textline_orientation=False,

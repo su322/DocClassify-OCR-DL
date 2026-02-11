@@ -26,17 +26,17 @@ def run_test():
         return
 
     print("正在初始化 TextDetection 模型...")
-    model = TextDetection() 
+    model = TextDetection()
     
     print(f"开始检测: {image_path}")
-    output = model.predict(image_path) 
+    output = model.predict(image_path)
     
     save_dir = "./output/TextDetection_v5"
     os.makedirs(save_dir, exist_ok=True)
 
     for res in output: 
-        res.print() 
-        res.save_to_img(save_path=save_dir) 
+        res.print()
+        res.save_to_img(save_path=save_dir)
         res.save_to_json(save_path=os.path.join(save_dir, "res.json"))
     
     print(f"完成。结果保存在 {save_dir}")

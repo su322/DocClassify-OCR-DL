@@ -11,3 +11,5 @@ __pycache__/
 
 # claude code
 .claude/
+
+.env

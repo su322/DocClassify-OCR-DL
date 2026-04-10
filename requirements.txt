@@ -4,6 +4,12 @@ pydantic-settings
 
 paddlepaddle # cpu version
 paddleocr[all]
+paddlex[ocr]
 
 black
 mypy
+
+celery
+redis
+sqlalchemy
+pymysql

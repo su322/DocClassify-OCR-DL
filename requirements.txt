@@ -4,3 +4,6 @@ pydantic-settings
 
 paddlepaddle # cpu version
 paddleocr[all]
+
+black
+mypy

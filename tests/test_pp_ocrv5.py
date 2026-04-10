@@ -17,7 +17,11 @@ def ensure_test_image(path):
             print(f"无法生成测试图片: {e}")
 
 def run_test():
-    image_path = "./general_ocr_002.png"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    img_dir = os.path.join(current_dir, "test_images")
+    os.makedirs(img_dir, exist_ok=True)
+    image_path = os.path.join(img_dir, "general_ocr_002.png")
+
     ensure_test_image(image_path)
     
     if not os.path.exists(image_path):
@@ -48,7 +52,7 @@ def run_test():
         result = ocr.predict(image_path)
         
         # 确保输出目录存在
-        save_dir = "./output/PaddleOCR_v5_mobile"
+        save_dir = os.path.join(current_dir, "output", "PaddleOCR_v5_mobile")
         os.makedirs(save_dir, exist_ok=True)
         
         for res in result: 

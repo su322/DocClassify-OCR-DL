@@ -8,3 +8,6 @@ __pycache__/
 
 # temp
 .DS_Store
+
+# claude code
+.claude/

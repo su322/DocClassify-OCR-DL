@@ -16,7 +16,11 @@ def ensure_test_image(path):
             print(f"无法生成图片: {e}")
 
 def run_test():
-    image_path = "./general_ocr_001.png"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    img_dir = os.path.join(current_dir, "test_images")
+    os.makedirs(img_dir, exist_ok=True)
+    image_path = os.path.join(img_dir, "general_ocr_001.png")
+
     ensure_test_image(image_path)
 
     try:
@@ -31,7 +35,7 @@ def run_test():
     print(f"开始检测: {image_path}")
     output = model.predict(image_path)
     
-    save_dir = "./output/TextDetection_v5"
+    save_dir = os.path.join(current_dir, "output", "TextDetection_v5")
     os.makedirs(save_dir, exist_ok=True)
 
     for res in output: 

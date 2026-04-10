@@ -20,7 +20,12 @@ def ensure_test_image(path):
             print(f"无法生成图片: {e}")
 
 def run_test():
-    image_path = "./pp_structure_v3_demo.png"
+    # 获取当前脚本所在的绝对路径，确保图片生成在 tests 目录下
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    img_dir = os.path.join(current_dir, "test_images")
+    os.makedirs(img_dir, exist_ok=True)
+    image_path = os.path.join(img_dir, "pp_structure_v3_demo.png")
+
     ensure_test_image(image_path)
 
     try:

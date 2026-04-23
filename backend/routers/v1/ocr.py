@@ -6,23 +6,21 @@ from fastapi import APIRouter, File, UploadFile, HTTPException
 from sqlalchemy.orm import Session
 from fastapi import Depends
 
-from backend.schemas.ocr import OCRResponse, AsyncOCRResponse
-from backend.schemas.response import BaseResponse, success_response
+from backend.schemas.ocr import OCRResponse
+from backend.schemas.classification import ClassificationRequest, ClassificationResponse
+from backend.schemas.base.response import BaseResponse, success_response
 
 from backend.services.ocr_service import ocr_service
-from backend.worker.document_tasks import process_document_workflow
+from backend.services.classification_service import classification_service
 from backend.core.database import get_db
 from backend.core.config import settings
 from backend.crud import document as doc_crud
+from backend.models.enums.document_status import DocumentStatus
 
 router = APIRouter()
 
-@router.post("/process", response_model=BaseResponse[OCRResponse], summary="解析文档图像基础接口", description="支持PDF/PNG/JPG/BMP/TIF等格式。单文件≤200MB(PDF)或10MB(图片)。")
-async def process_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    前端上传一张单页文档图片或PDF，后端通过 PaddleOCR 解析并返回标准的 Pydantic JSON 格式。
-    在引入 Celery 之前，这里暂时是同步阻塞调用。
-    """
+def _handle_file_upload(file: UploadFile) -> str:
+    """处理文件上传和校验"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
@@ -47,6 +45,20 @@ async def process_document(file: UploadFile = File(...), db: Session = Depends(g
         elif ext != ".pdf" and file_size_mb > settings.MAX_IMAGE_SIZE_MB:
             raise HTTPException(status_code=400, detail=f"图片文件大小 ({file_size_mb:.2f}MB) 超出限制 ({settings.MAX_IMAGE_SIZE_MB}MB)")
 
+        return temp_file_path
+    except Exception as e:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise
+
+@router.post("/process", response_model=BaseResponse[OCRResponse], summary="解析文档图像基础接口", description="支持PDF/PNG/JPG/BMP/TIF等格式。单文件≤200MB(PDF)或10MB(图片)。")
+async def process_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    前端上传一张单页文档图片或PDF，后端通过 PaddleOCR 解析并返回标准的 Pydantic JSON 格式。
+    """
+    temp_file_path = _handle_file_upload(file)
+
+    try:
         # 核心：生成全局唯一的 Document ID
         doc_id = str(uuid.uuid4())
 
@@ -60,48 +72,59 @@ async def process_document(file: UploadFile = File(...), db: Session = Depends(g
         return success_response(data=result, msg="解析成功")
 
     except Exception as e:
+        # 更新数据库状态为失败
+        if 'doc_id' in locals():
+            doc_crud.update_document_failed(db, doc_id, str(e))
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # TODO: 处理成功后可能暂不清理，以备查看
+        # 处理成功后清理临时文件
         if os.path.exists(temp_file_path):
-            pass # os.remove(temp_file_path)
+            os.remove(temp_file_path)
 
-@router.post("/process_async", response_model=BaseResponse[AsyncOCRResponse], summary="异步解析文档图像接口", description="支持PDF/PNG/JPG等格式。将图像处理任务发送到 Celery 队列而不阻塞。")
-async def process_document_async(file: UploadFile = File(...), db: Session = Depends(get_db)):
+@router.post("/classify", response_model=BaseResponse[ClassificationResponse], summary="文档分类完整流程", description="上传文档，自动完成 OCR 解析和分类")
+async def classify_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    异步方式：前端上传图片，后端只返回一个 task_id，由后台 Mac 的 Celery 节点慢慢处理。
+    完整流程：上传文档 → OCR 解析 → 分类 → 返回结果
     """
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
-
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in settings.ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
-
-    temp_dir = "temp_uploads"
-    os.makedirs(temp_dir, exist_ok=True)
-    temp_file_path = os.path.join(temp_dir, file.filename)
+    temp_file_path = _handle_file_upload(file)
 
     try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        file_size_mb = os.path.getsize(temp_file_path) / (1024 * 1024)
-        if ext == ".pdf" and file_size_mb > settings.MAX_PDF_SIZE_MB:
-            raise HTTPException(status_code=400, detail=f"PDF 文件大小超出")
-        elif ext != ".pdf" and file_size_mb > settings.MAX_IMAGE_SIZE_MB:
-            raise HTTPException(status_code=400, detail=f"图片文件大小超出")
-
+        # 核心：生成全局唯一的 Document ID
         doc_id = str(uuid.uuid4())
 
-        # 落地第一条任务调度初始数据库记录
+        # 落地第一条数据库记录
         doc_crud.create_document(db, doc_id, file.filename)
 
-        # 核心：发给 Celery 任务队列（不会阻塞在此处）
-        task = process_document_workflow.delay(temp_file_path, file.filename, doc_id)
+        # 1. 调用 OCR 服务进行处理
+        ocr_result = ocr_service.process_document(temp_file_path, file.filename, document_id=doc_id)
 
-        async_data = AsyncOCRResponse(document_id=doc_id, task_id=task.id)
-        return success_response(data=async_data, msg="任务已提交队列")
+        # 2. 调用分类服务进行分类
+        classification_request = ClassificationRequest(
+            document_id=doc_id,
+            ocr_regions=ocr_result.regions,
+            tables=ocr_result.tables
+        )
+        classification_result = classification_service.predict(classification_request)
+
+        # 3. 更新数据库记录
+        ocr_results_dict = [region.model_dump() for region in ocr_result.regions]
+        doc_crud.update_document_success(
+            db, 
+            doc_id, 
+            classification_result.predicted_class, 
+            classification_result.confidence, 
+            ocr_results_dict
+        )
+
+        # 统一返回体
+        return success_response(data=classification_result, msg="分类成功")
 
     except Exception as e:
+        # 更新数据库状态为失败
+        if 'doc_id' in locals():
+            doc_crud.update_document_failed(db, doc_id, str(e))
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # 处理成功后清理临时文件
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)

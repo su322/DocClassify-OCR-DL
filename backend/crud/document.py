@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from backend.models.document import DocumentRecord
+from backend.models.database.document import DocumentRecord
 from backend.models.enums.document_status import DocumentStatus
 from typing import List, Dict, Any, Optional
 

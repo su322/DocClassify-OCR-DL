@@ -6,11 +6,10 @@ from sqlalchemy.orm import sessionmaker
 from backend.core.config import settings
 
 # 创建数据库引擎
-# 固定开启连接池探测机制，防止数据库自动断线
+# SQLite 不需要连接池和回收机制
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,      # 检查连接是否可用
-    pool_recycle=3600        # 每小时回收重置连接，避免 MySQL server has gone away
+    connect_args={"check_same_thread": False}  # SQLite 多线程支持
 )
 
 # 创建会话工厂

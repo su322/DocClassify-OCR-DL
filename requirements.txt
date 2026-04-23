@@ -9,7 +9,11 @@ paddlex[ocr]
 black
 mypy
 
-celery
-redis
 sqlalchemy
-pymysql
+
+# GNN 相关库
+torch
+torch_geometric
+
+# 文本嵌入
+sentence-transformers

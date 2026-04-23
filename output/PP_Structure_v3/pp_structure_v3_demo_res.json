@@ -1,0 +1,303 @@
+{
+    "input_path": "/Users/suyuhang/Documents/GitHub/DocClassify-OCR-DL/tests/test_images/pp_structure_v3_demo.png",
+    "page_index": null,
+    "page_count": null,
+    "width": 600,
+    "height": 800,
+    "model_settings": {
+        "use_doc_preprocessor": true,
+        "use_seal_recognition": false,
+        "use_table_recognition": true,
+        "use_formula_recognition": true,
+        "use_chart_recognition": false,
+        "use_region_detection": true,
+        "format_block_content": false,
+        "markdown_ignore_labels": [
+            "number",
+            "footnote",
+            "header",
+            "header_image",
+            "footer",
+            "footer_image",
+            "aside_text"
+        ]
+    },
+    "parsing_res_list": [
+        {
+            "block_label": "table",
+            "block_content": "<html><body><table><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr><tr><td></td><td></td></tr><tr><td></td><td></td></tr></table></body></html>",
+            "block_bbox": [
+                49,
+                49,
+                550,
+                300
+            ],
+            "block_id": 0,
+            "block_order": null
+        }
+    ],
+    "doc_preprocessor_res": {
+        "input_path": null,
+        "page_index": null,
+        "model_settings": {
+            "use_doc_orientation_classify": false,
+            "use_doc_unwarping": false
+        },
+        "angle": -1
+    },
+    "layout_det_res": {
+        "input_path": null,
+        "page_index": null,
+        "boxes": [
+            {
+                "cls_id": 8,
+                "label": "table",
+                "score": 0.9791334271430969,
+                "coordinate": [
+                    49.7978515625,
+                    49.21087646484375,
+                    550.61962890625,
+                    300.24072265625
+                ]
+            }
+        ]
+    },
+    "overall_ocr_res": {
+        "input_path": null,
+        "page_index": null,
+        "model_settings": {
+            "use_doc_preprocessor": false,
+            "use_textline_orientation": true
+        },
+        "dt_polys": [
+            [
+                [
+                    58,
+                    59
+                ],
+                [
+                    104,
+                    59
+                ],
+                [
+                    104,
+                    73
+                ],
+                [
+                    58,
+                    73
+                ]
+            ],
+            [
+                [
+                    208,
+                    59
+                ],
+                [
+                    254,
+                    59
+                ],
+                [
+                    254,
+                    73
+                ],
+                [
+                    208,
+                    73
+                ]
+            ]
+        ],
+        "text_det_params": {
+            "limit_side_len": 736,
+            "limit_type": "min",
+            "thresh": 0.3,
+            "max_side_limit": 4000,
+            "box_thresh": 0.6,
+            "unclip_ratio": 1.5
+        },
+        "text_type": "general",
+        "textline_orientation_angles": [
+            0,
+            0
+        ],
+        "text_rec_score_thresh": 0.0,
+        "return_word_box": false,
+        "rec_texts": [
+            "Header 1",
+            "Header 2"
+        ],
+        "rec_scores": [
+            0.9807902574539185,
+            0.9551457166671753
+        ],
+        "rec_polys": [
+            [
+                [
+                    58,
+                    59
+                ],
+                [
+                    104,
+                    59
+                ],
+                [
+                    104,
+                    73
+                ],
+                [
+                    58,
+                    73
+                ]
+            ],
+            [
+                [
+                    208,
+                    59
+                ],
+                [
+                    254,
+                    59
+                ],
+                [
+                    254,
+                    73
+                ],
+                [
+                    208,
+                    73
+                ]
+            ]
+        ],
+        "rec_boxes": [
+            [
+                58,
+                59,
+                104,
+                73
+            ],
+            [
+                208,
+                59,
+                254,
+                73
+            ]
+        ]
+    },
+    "table_res_list": [
+        {
+            "cell_box_list": [
+                [
+                    50.7978515625,
+                    51.21087646484375,
+                    209.7978515625,
+                    90.21087646484375
+                ],
+                [
+                    215.7978515625,
+                    50.21087646484375,
+                    546.7978515625,
+                    94.21087646484375
+                ],
+                [
+                    50.7978515625,
+                    96.21087646484375,
+                    205.7978515625,
+                    228.21087646484375
+                ],
+                [
+                    205.7978515625,
+                    96.21087646484375,
+                    548.7978515625,
+                    228.21087646484375
+                ],
+                [
+                    50.7978515625,
+                    169.21087646484375,
+                    206.7978515625,
+                    221.21087646484375
+                ],
+                [
+                    213.7978515625,
+                    162.21087646484375,
+                    547.7978515625,
+                    217.21087646484375
+                ],
+                [
+                    50.7978515625,
+                    202.21087646484375,
+                    200.7978515625,
+                    251.21087646484375
+                ],
+                [
+                    208.7978515625,
+                    197.21087646484375,
+                    547.7978515625,
+                    246.21087646484375
+                ]
+            ],
+            "pred_html": "<html><body><table><tr><td>Header 1</td><td>Header 2</td></tr><tr><td></td><td></td></tr><tr><td></td><td></td></tr><tr><td></td><td></td></tr></table></body></html>",
+            "table_ocr_pred": {
+                "rec_polys": [
+                    [
+                        [
+                            58,
+                            59
+                        ],
+                        [
+                            104,
+                            59
+                        ],
+                        [
+                            104,
+                            73
+                        ],
+                        [
+                            58,
+                            73
+                        ]
+                    ],
+                    [
+                        [
+                            208,
+                            59
+                        ],
+                        [
+                            254,
+                            59
+                        ],
+                        [
+                            254,
+                            73
+                        ],
+                        [
+                            208,
+                            73
+                        ]
+                    ]
+                ],
+                "rec_texts": [
+                    "Header 1",
+                    "Header 2"
+                ],
+                "rec_scores": [
+                    0.9807902574539185,
+                    0.9551457166671753
+                ],
+                "rec_boxes": [
+                    [
+                        58,
+                        59,
+                        104,
+                        73
+                    ],
+                    [
+                        208,
+                        59,
+                        254,
+                        73
+                    ]
+                ]
+            }
+        }
+    ]
+}

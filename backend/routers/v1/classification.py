@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from backend.schemas.classification import ClassificationRequest, ClassificationResponse
-from backend.schemas.response import BaseResponse, success_response
+from backend.schemas.base.response import BaseResponse, success_response
 from backend.services.classification_service import classification_service
 
 router = APIRouter()

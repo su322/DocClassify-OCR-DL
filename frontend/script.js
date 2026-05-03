@@ -40,7 +40,7 @@ function uploadDocument() {
         const mockResult = {
             document_id: 'doc_' + Date.now(),
             filename: file.name,
-            predicted_class: '公文',
+            predicted_class: '通知_公告',
             confidence: 0.95,
             ocr_regions: [
                 { text: '关于召开会议的通知', confidence: 0.98, box: [100, 50, 300, 80], region_type: 'title' },

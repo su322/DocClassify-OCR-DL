@@ -5,7 +5,13 @@ from backend.services.classification_service import classification_service
 
 router = APIRouter()
 
-@router.post("/predict", response_model=BaseResponse[ClassificationResponse], summary="深度学习文档分类接口", description="接收前端传来的结构化 OCR 特征序列（或从数据库提取），输入并调用图神经网络输出最终文档分类。")
+
+@router.post(
+    "/predict",
+    response_model=BaseResponse[ClassificationResponse],
+    summary="深度学习文档分类接口",
+    description="接收前端传来的结构化 OCR 特征序列（或从数据库提取），输入并调用图神经网络输出最终文档分类。",
+)
 async def classify_document(request: ClassificationRequest):
     """
     此接口是 OCR 数据向 GNN 转换的枢纽。

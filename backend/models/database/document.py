@@ -5,14 +5,18 @@ import uuid
 from backend.core.database import Base
 from backend.models.enums.document_status import DocumentStatus
 
+
 def get_utc_now():
     return datetime.now(timezone.utc)
+
 
 class DocumentRecord(Base):
     __tablename__ = "documents"
 
     # UUID 作为主键，长度 36
-    id = Column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    id = Column(
+        String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4())
+    )
 
     # 原始文件名
     filename = Column(String(255), index=True, nullable=False)

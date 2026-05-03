@@ -1,7 +1,8 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from backend.schemas.ocr import OCRRegion, OCRResponse, TableRegion, TableCell
 from paddleocr import PPStructureV3
+
 
 class OCRService:
     def __init__(self):
@@ -20,15 +21,74 @@ class OCRService:
             use_doc_unwarping=False,
             use_table_recognition=True,
             use_formula_recognition=True,
-            use_region_detection=True
+            use_region_detection=True,
         )
         print("PP-StructureV3 模型初始化成功")
 
-    def process_document(self, file_path: str, filename: str, document_id: str) -> OCRResponse:
+    @staticmethod
+    def _assign_region_type(
+        box: List[float], layout_boxes: List[Dict[str, Any]]
+    ) -> str:
+        """
+        根据版面检测结果，判断文本框所属的版面类型。
+
+        通过计算文本框与各版面区域的 IoU（交并比）来确定最匹配的版面标签。
+        如果没有匹配的版面区域，默认返回 "text"。
+
+        Args:
+            box: 文本框坐标 [xmin, ymin, xmax, ymax]
+            layout_boxes: layout_det_res 中的 boxes 列表
+
+        Returns:
+            版面类型标签，如 "title", "text", "figure", "table", "header", "footer" 等
+        """
+        if not layout_boxes or not box or len(box) < 4:
+            return "text"
+
+        best_label = "text"
+        best_iou = 0.15  # IoU 阈值，低于此值认为不匹配
+
+        for box_info in layout_boxes:
+            label = box_info.get("label", "")
+            if label == "table":
+                continue  # 表格区域单独处理，跳过
+
+            coord = box_info.get("coordinate")
+            if not coord or len(coord) < 4:
+                continue
+
+            # 计算 IoU
+            iou = OCRService._compute_iou(box, coord)
+            if iou > best_iou:
+                best_iou = iou
+                best_label = label
+
+        return best_label
+
+    @staticmethod
+    def _compute_iou(box1: List[float], box2: List[float]) -> float:
+        """计算两个轴对齐矩形的 IoU"""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        if intersection == 0:
+            return 0.0
+
+        area1 = max(0, box1[2] - box1[0]) * max(0, box1[3] - box1[1])
+        area2 = max(0, box2[2] - box2[0]) * max(0, box2[3] - box2[1])
+        union = area1 + area2 - intersection
+
+        return intersection / union if union > 0 else 0.0
+
+    def process_document(
+        self, file_path: str, filename: str, document_id: str
+    ) -> OCRResponse:
         """
         调用 PaddleOCR 对给定路径的文档进行脱机识别。
         自动兼容并处理单页图片（png/jpg等）和多页文档（pdf、长图tiff等）。
-        未来若需支持 Word/Excel，可在此处预留拓展，将其先转为 PDF 或图片流再输入。
         """
         # PP-StructureV3 使用 predict 接口
         results = self.ocr_model.predict(input=file_path)
@@ -51,7 +111,6 @@ class OCRService:
                     elif isinstance(page_res, dict):
                         res_dict = page_res
                     else:
-                        # Fallback 获取其内置属性
                         res_dict = page_res.__dict__
 
                     # 获取文档尺寸
@@ -60,6 +119,10 @@ class OCRService:
                     if height is None:
                         height = res_dict.get("height")
 
+                    # 获取版面检测结果（用于标注 region_type）
+                    layout_res = res_dict.get("layout_det_res", {})
+                    layout_boxes = layout_res.get("boxes", [])
+
                     # 处理整体OCR结果
                     overall_ocr = res_dict.get("overall_ocr_res", {})
                     rec_texts = overall_ocr.get("rec_texts", [])
@@ -67,18 +130,21 @@ class OCRService:
                     rec_boxes = overall_ocr.get("rec_boxes", [])
                     rec_polys = overall_ocr.get("rec_polys", [])
 
-                    # 处理文本区域
+                    # 处理文本区域（利用版面检测结果标注 region_type）
                     for i, text in enumerate(rec_texts):
                         confidence = rec_scores[i] if i < len(rec_scores) else 1.0
                         box = rec_boxes[i] if i < len(rec_boxes) else [0, 0, 0, 0]
                         polygon = rec_polys[i] if i < len(rec_polys) else None
+
+                        # 根据版面检测结果自动判断 region_type
+                        region_type = self._assign_region_type(box, layout_boxes)
 
                         region = OCRRegion(
                             text=text,
                             confidence=confidence,
                             box=box,
                             polygon=polygon,
-                            region_type="text"
+                            region_type=region_type,
                         )
                         regions.append(region)
 
@@ -93,20 +159,17 @@ class OCRService:
                         # 构建单元格列表
                         cells = []
                         for j, cell_box in enumerate(cell_box_list):
-                            text = table_rec_texts[j] if j < len(table_rec_texts) else None
-                            cell = TableCell(
-                                box=cell_box,
-                                text=text
+                            text = (
+                                table_rec_texts[j] if j < len(table_rec_texts) else None
                             )
+                            cell = TableCell(box=cell_box, text=text)
                             cells.append(cell)
 
                         # 获取表格坐标和置信度
-                        layout_res = res_dict.get("layout_det_res", {})
-                        boxes = layout_res.get("boxes", [])
                         table_box = None
                         table_confidence = 0.9
 
-                        for box_info in boxes:
+                        for box_info in layout_boxes:
                             if box_info.get("label") == "table":
                                 table_box = box_info.get("coordinate", [0, 0, 0, 0])
                                 table_confidence = box_info.get("score", 0.9)
@@ -117,7 +180,7 @@ class OCRService:
                                 box=table_box,
                                 html=pred_html,
                                 cells=cells,
-                                confidence=table_confidence
+                                confidence=table_confidence,
                             )
                             tables.append(table_region)
 
@@ -131,8 +194,9 @@ class OCRService:
             regions=regions,
             tables=tables if tables else None,
             width=width,
-            height=height
+            height=height,
         )
+
 
 # 单例实例
 ocr_service = OCRService()

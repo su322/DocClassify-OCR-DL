@@ -14,6 +14,12 @@ sqlalchemy
 # GNN 相关库
 torch
 torch_geometric
+torchvision
 
 # 文本嵌入
 sentence-transformers
+
+# 训练可视化
+matplotlib
+scikit-learn
+seaborn

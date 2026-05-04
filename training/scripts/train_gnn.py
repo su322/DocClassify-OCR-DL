@@ -44,6 +44,7 @@ def set_seed(seed: int = 42):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.set_num_threads(os.cpu_count() or 4)  # GNN 没有 DataLoader workers，用满 CPU
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
@@ -171,13 +172,13 @@ def evaluate(model, loader, criterion, device):
 def train_model(
     model_name: str,
     dataset: list,
+    val_dataset: list = None,
     classes: list = None,
     epochs: int = 200,
     batch_size: int = 16,
     learning_rate: float = 0.001,
-    val_ratio: float = 0.2,
     patience: int = 20,
-    output_dir: str = "training/output",
+    output_dir: str = "training/output"
 ):
     """
     训练指定模型并生成可视化结果
@@ -211,20 +212,18 @@ def train_model(
     print(f"  数据集大小: {len(dataset)}")
     print(f"  批大小: {batch_size}")
     print(f"  初始学习率: {learning_rate}")
-    print(f"  验证集比例: {val_ratio}")
     print(f"  早停耐心值: {patience}")
     print(f"  设备: {device}")
     print(f"{'='*60}\n")
 
-    # 划分训练集和验证集
-    random.shuffle(dataset)
-    val_size = max(1, int(len(dataset) * val_ratio))
-    train_dataset = dataset[:-val_size]
-    val_dataset = dataset[-val_size:]
-    print(f"训练集: {len(train_dataset)} 样本, 验证集: {len(val_dataset)} 样本\n")
+    # 使用预处理好的验证集
+    if val_dataset:
+        print(f"训练集: {len(dataset)} 样本, 验证集: {len(val_dataset)} 样本\n")
+    else:
+        print(f"训练集: {len(dataset)} 样本, 验证集: 无\n")
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False) if val_dataset else None
 
     # 确定模型参数
     sample = dataset[0]
@@ -243,7 +242,7 @@ def train_model(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6, verbose=True
+        optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6
     )
 
     # 训练历史记录
@@ -281,16 +280,20 @@ def train_model(
             train_correct += (predicted == batch.y.squeeze()).sum().item()
             train_total += batch.num_graphs
 
-        avg_train_loss = train_loss / len(train_dataset)
+        avg_train_loss = train_loss / len(dataset)
         train_acc = train_correct / train_total
 
         # ---- 验证阶段 ----
-        avg_val_loss, val_acc, val_preds, val_labels = evaluate(
-            model, val_loader, criterion, device
-        )
+        if val_loader:
+            avg_val_loss, val_acc, val_preds, val_labels = evaluate(
+                model, val_loader, criterion, device
+            )
+        else:
+            avg_val_loss, val_acc, val_preds, val_labels = avg_train_loss, train_acc, [], []
 
         # 学习率调度
-        scheduler.step(avg_val_loss)
+        if val_loader:
+            scheduler.step(avg_val_loss)
         current_lr = optimizer.param_groups[0]["lr"]
 
         # 记录历史
@@ -473,7 +476,7 @@ def _generate_plots(
 # ============================================================
 
 
-def run_comparison(dataset: list, **kwargs):
+def run_comparison(dataset: list, val_dataset: list = None, **kwargs):
     """
     运行 GCN vs GAT 对比实验
 
@@ -551,7 +554,6 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=200, help="最大训练轮数")
     parser.add_argument("--batch-size", type=int, default=16, help="批大小")
     parser.add_argument("--lr", type=float, default=0.001, help="初始学习率")
-    parser.add_argument("--val-ratio", type=float, default=0.2, help="验证集比例")
     parser.add_argument("--patience", type=int, default=20, help="早停耐心值")
     parser.add_argument(
         "--output-dir", type=str, default="training/output", help="输出目录"
@@ -566,7 +568,7 @@ if __name__ == "__main__":
             )
             sys.exit(1)
         ds_config = settings.DATASETS[args.dataset]
-        data_dir = ds_config["data_dir"]
+        data_dir = ds_config["train_dir"]
         classes = ds_config["classes"]
         print(f"使用预定义数据集: {args.dataset}")
         print(f"  描述: {ds_config['description']}")
@@ -585,7 +587,20 @@ if __name__ == "__main__":
 
     print("\n开始准备训练数据...")
     dataset = prepare_train_data(data_dir, classes)
-    print(f"\n共准备 {len(dataset)} 个训练样本\n")
+    print(f"\n共准备 {len(dataset)} 个训练样本")
+
+    # 准备验证集数据（如果存在 val 目录）
+    val_dataset = None
+    if args.dataset:
+        val_dir = ds_config.get("val_dir")
+    else:
+        val_dir = None
+    if val_dir and os.path.isdir(val_dir):
+        print("\n开始准备验证数据...")
+        val_dataset = prepare_train_data(val_dir, classes)
+        print(f"共准备 {len(val_dataset)} 个验证样本")
+
+    print()
 
     if not dataset:
         print("错误: 没有有效的训练数据，请检查数据目录。")
@@ -593,10 +608,10 @@ if __name__ == "__main__":
 
     train_kwargs = {
         "classes": classes,
+        "val_dataset": val_dataset,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.lr,
-        "val_ratio": args.val_ratio,
         "patience": args.patience,
         "output_dir": args.output_dir,
     }

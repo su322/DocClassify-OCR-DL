@@ -43,30 +43,31 @@ class Settings(BaseSettings):
     ]
 
     # --- 数据集配置 ---
-    # 训练时通过 --dataset 参数选择使用哪个数据集
-    # 每个数据集定义: 名称 -> {类别列表, 训练数据目录, 描述}
     DATASETS: Dict[str, dict] = {
         "rvl_cdip": {
-            "description": "RVL-CDIP: 40万张文档图像, 16类, 英文, 文档分类领域标准benchmark",
+            "description": "RVL-CDIP: 47996张文档图像, 16类, 英文, 文档分类领域标准benchmark",
             "classes": [
-                "letter",  # 信件
-                "form",  # 表单
-                "email",  # 电子邮件
-                "handwritten",  # 手写文档
-                "advertisement",  # 广告
-                "scientific_report",  # 科学报告
-                "scientific_publication",  # 科学出版物
-                "specification",  # 规格说明书
-                "file_folder",  # 文件夹
-                "news_article",  # 新闻文章
-                "budget",  # 预算
-                "invoice",  # 发票
-                "presentation",  # 演示文稿
-                "questionnaire",  # 问卷
-                "resume",  # 简历
-                "memo",  # 备忘录
+                "letter",
+                "form",
+                "email",
+                "handwritten",
+                "advertisement",
+                "scientific_report",
+                "scientific_publication",
+                "specification",
+                "file_folder",
+                "news_article",
+                "budget",
+                "invoice",
+                "presentation",
+                "questionnaire",
+                "resume",
+                "memo",
             ],
-            "data_dir": "training/data/rvl_cdip/train",
+            "source_dir": "training/data/rvl_cdip/data",
+            "train_dir": "training/data/rvl_cdip/train",
+            "val_dir": "training/data/rvl_cdip/val",
+            "test_dir": "training/data/rvl_cdip/test",
         },
     }
 

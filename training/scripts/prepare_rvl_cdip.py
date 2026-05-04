@@ -1,144 +1,137 @@
 """
 RVL-CDIP 数据集预处理脚本
 
-用法:
-    1. 下载 rvl-cdip.tar.gz 和 train.txt / val.txt / test.txt
-    2. 解压: tar -xzf rvl-cdip.tar.gz
-    3. 运行此脚本: python training/scripts/prepare_rvl_cdip.py
+功能:
+- 从 source_dir（原始数据，文件夹名带空格）读取图像
+- 按 80/10/10 划分为 train/val/test
+- 输出到 train_dir/val_dir/test_dir（文件夹名用下划线，与代码类别名一致）
+- 完成后删除原始 data/ 目录
 
-脚本会自动:
-    - 将数字编号文件夹重命名为类别名
-    - 按 train/val/test 划分复制到对应目录
-    - 每个类别可限制最大样本数（默认 1000，防止数据量过大）
+用法:
+    python training/scripts/prepare_rvl_cdip.py
 """
 
 import os
-import shutil
+import random
+import argparse
+import sys
 
-# RVL-CDIP 数字编号 → 类别名映射
-LABEL_MAP = {
-    "0": "letter",
-    "1": "form",
-    "2": "email",
-    "3": "handwritten",
-    "4": "advertisement",
-    "5": "scientific_report",
-    "6": "scientific_publication",
-    "7": "specification",
-    "8": "file_folder",
-    "9": "news_article",
-    "10": "budget",
-    "11": "invoice",
-    "12": "presentation",
-    "13": "questionnaire",
-    "14": "resume",
-    "15": "memo",
-}
-
-# 配置
-RVL_CDIP_ROOT = "training/data/rvl_cdip"  # 项目中 RVL-CDIP 的根目录
-EXTRACTED_DIR = "training/data/rvl_cdip/raw"  # 解压后的原始数据目录（数字编号文件夹）
-MAX_SAMPLES_PER_CLASS = 1000  # 每个类别最大样本数（设为 None 表示不限制）
-
-
-def parse_split_file(split_file: str) -> dict:
-    """
-    解析 train.txt / val.txt / test.txt
-
-    文件格式: 每行 "图像路径 类别编号"
-    例如: train/0/00001.png 0
-    """
-    samples = {}  # {label_name: [file_path, ...]}
-    with open(split_file, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.rsplit(" ", 1)
-            if len(parts) != 2:
-                continue
-            img_path, label_id = parts
-            label_name = LABEL_MAP.get(label_id)
-            if label_name is None:
-                continue
-            if label_name not in samples:
-                samples[label_name] = []
-            samples[label_name].append(img_path)
-
-    return samples
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from backend.core.config import settings
 
 
 def main():
-    # 检查解压目录
-    if not os.path.isdir(EXTRACTED_DIR):
-        print(f"错误: 找不到解压目录 {EXTRACTED_DIR}")
-        print(f"请先解压 rvl-cdip.tar.gz 到 {EXTRACTED_DIR}/")
-        return
+    parser = argparse.ArgumentParser(description="RVL-CDIP 数据集预处理")
+    parser.add_argument("--dataset", type=str, default="rvl_cdip")
+    parser.add_argument("--train-ratio", type=float, default=0.8, help="训练集比例")
+    parser.add_argument("--val-ratio", type=float, default=0.1, help="验证集比例")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子")
+    args = parser.parse_args()
 
-    # 检查标签文件
-    for split_name in ["train", "val", "test"]:
-        split_file = os.path.join(RVL_CDIP_ROOT, f"{split_name}.txt")
-        if not os.path.exists(split_file):
-            print(f"错误: 找不到 {split_file}")
-            print("请从 HuggingFace 下载 train.txt / val.txt / test.txt")
-            return
+    if args.dataset not in settings.DATASETS:
+        print(f"错误: 未知数据集 '{args.dataset}'")
+        sys.exit(1)
 
-    # 合并 train + val 作为训练集（我们的脚本会自动再划分验证集）
-    print("解析标签文件...")
-    all_samples = {}
-    for split_name in ["train", "val"]:
-        split_file = os.path.join(RVL_CDIP_ROOT, f"{split_name}.txt")
-        samples = parse_split_file(split_file)
-        for label, paths in samples.items():
-            if label not in all_samples:
-                all_samples[label] = []
-            all_samples[label].extend(paths)
+    ds = settings.DATASETS[args.dataset]
+    source_dir = ds["source_dir"]
+    train_dir = ds["train_dir"]
+    val_dir = ds["val_dir"]
+    test_dir = ds["test_dir"]
+    classes = ds["classes"]
+
+    # 文件夹名 → 类别名映射（数据集文件夹名带空格，代码中用下划线）
+    folder_map = {cls.replace("_", " "): cls for cls in classes}
+
+    if not os.path.isdir(source_dir):
+        print(f"错误: 源数据目录不存在: {source_dir}")
+        sys.exit(1)
+
+    random.seed(args.seed)
+
+    # 扫描源目录
+    print(f"源数据目录: {source_dir}\n")
+
+    class_files = {}  # {class_name: [filepath, ...]}
+    for folder_name in sorted(os.listdir(source_dir)):
+        folder_path = os.path.join(source_dir, folder_name)
+        if not os.path.isdir(folder_path):
+            continue
+
+        class_name = folder_map.get(folder_name)
+        if class_name is None:
+            print(f"  [跳过] 未知文件夹: {folder_name}")
+            continue
+
+        files = [f for f in os.listdir(folder_path)
+                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'))]
+        class_files[class_name] = [os.path.join(folder_path, f) for f in files]
 
     # 统计
-    print(f"\n共 {len(all_samples)} 个类别:")
     total = 0
-    for label, paths in sorted(all_samples.items()):
-        count = len(paths)
-        if MAX_SAMPLES_PER_CLASS and count > MAX_SAMPLES_PER_CLASS:
-            count = MAX_SAMPLES_PER_CLASS
-        print(f"  {label}: {count} 张")
+    for cls in classes:
+        count = len(class_files.get(cls, []))
+        print(f"  {cls}: {count} 张")
         total += count
     print(f"  总计: {total} 张\n")
 
-    # 创建目标目录并复制文件
-    target_dir = os.path.join(RVL_CDIP_ROOT, "train")
-    os.makedirs(target_dir, exist_ok=True)
+    # 按类别内 80/10/10 划分
+    splits = {"train": {}, "val": {}, "test": {}}
+    train_total, val_total, test_total = 0, 0, 0
 
-    for label, paths in sorted(all_samples.items()):
-        label_dir = os.path.join(target_dir, label)
-        os.makedirs(label_dir, exist_ok=True)
+    for cls in classes:
+        files = class_files.get(cls, [])
+        random.shuffle(files)
 
-        # 限制样本数
-        if MAX_SAMPLES_PER_CLASS:
-            paths = paths[:MAX_SAMPLES_PER_CLASS]
+        n = len(files)
+        n_train = int(n * args.train_ratio)
+        n_val = int(n * args.val_ratio)
 
-        copied = 0
-        for img_rel_path in paths:
-            # 原始文件路径（相对于解压目录）
-            src = os.path.join(EXTRACTED_DIR, img_rel_path)
-            if not os.path.exists(src):
-                continue
+        splits["train"][cls] = files[:n_train]
+        splits["val"][cls] = files[n_train:n_train + n_val]
+        splits["test"][cls] = files[n_train + n_val:]
 
-            # 目标文件路径
-            filename = os.path.basename(img_rel_path)
-            dst = os.path.join(label_dir, filename)
+        train_total += len(splits["train"][cls])
+        val_total += len(splits["val"][cls])
+        test_total += len(splits["test"][cls])
 
-            # 复制文件（如果已存在则跳过）
-            if not os.path.exists(dst):
-                shutil.copy2(src, dst)
-            copied += 1
+    print(f"划分结果:")
+    print(f"  训练集: {train_total} 张 ({train_total/total:.1%})")
+    print(f"  验证集: {val_total} 张 ({val_total/total:.1%})")
+    print(f"  测试集: {test_total} 张 ({test_total/total:.1%})")
+    print(f"  总计:   {total} 张\n")
 
-        print(f"  [{label}] 复制 {copied}/{len(paths)} 张")
+    # 移动文件到对应目录（完成后删除原始 data/ 目录）
+    import shutil
+    split_dirs = {"train": train_dir, "val": val_dir, "test": test_dir}
 
-    print(f"\n完成! 训练数据已准备到: {target_dir}")
-    print(
-        f"运行训练: python training/scripts/train_gnn.py --dataset rvl_cdip --model both"
-    )
+    for split_name, target_root in split_dirs.items():
+        os.makedirs(target_root, exist_ok=True)
+
+        for cls, files in splits[split_name].items():
+            cls_dir = os.path.join(target_root, cls)
+            os.makedirs(cls_dir, exist_ok=True)
+
+            for src_path in files:
+                filename = os.path.basename(src_path)
+                dst_path = os.path.join(cls_dir, filename)
+                shutil.move(src_path, dst_path)
+
+        print(f"  [{split_name}] → {target_root}/ ({sum(len(v) for v in splits[split_name].values())} 张)")
+
+    # 删除原始 data/ 目录（已全部移出）
+    try:
+        shutil.rmtree(source_dir)
+        print(f"\n  已删除原始数据目录: {source_dir}")
+    except OSError as e:
+        print(f"\n  [警告] 删除原始目录失败: {e}，请手动删除")
+
+    print(f"\n完成!")
+    print(f"  训练: {train_dir}")
+    print(f"  验证: {val_dir}")
+    print(f"  测试: {test_dir}")
+    print(f"\n运行训练:")
+    print(f"  python training/scripts/train_cnn.py --dataset rvl_cdip")
+    print(f"  python training/scripts/train_gnn.py --dataset rvl_cdip --model both")
 
 
 if __name__ == "__main__":

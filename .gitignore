@@ -13,3 +13,5 @@ __pycache__/
 .claude/
 
 .env
+
+training/data/rvl_cdip

@@ -104,13 +104,13 @@ def evaluate(model, loader, criterion, device):
 def train_cnn(
     data_dir: str,
     classes: list,
+    val_dir: str = None,
     test_dir: str = None,
     epochs: int = 50,
     batch_size: int = 32,
     learning_rate: float = 0.001,
-    val_ratio: float = 0.2,
     patience: int = 10,
-    output_dir: str = "training/output/cnn",
+    output_dir: str = "training/output/cnn"
 ):
     """训练 CNN 模型"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -145,35 +145,26 @@ def train_cnn(
         ]
     )
 
-    # 加载数据
-    full_dataset = DocumentImageDataset(data_dir, classes, transform=None)
-    if len(full_dataset) == 0:
+    # 加载数据（直接使用预处理好的 train/val 目录）
+    train_dataset = DocumentImageDataset(data_dir, classes, transform=train_transform)
+    if len(train_dataset) == 0:
         print("错误: 没有找到训练数据!")
         return
 
-    # 划分训练集和验证集
-    random.shuffle(full_dataset.samples)
-    val_size = max(1, int(len(full_dataset) * val_ratio))
-    train_samples = full_dataset.samples[:-val_size]
-    val_samples = full_dataset.samples[-val_size:]
+    # 加载验证集
+    val_loader = None
+    if val_dir and os.path.isdir(val_dir):
+        val_dataset = DocumentImageDataset(val_dir, classes, transform=eval_transform)
+        if len(val_dataset) > 0:
+            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+            print(f"验证集: {len(val_dataset)} 张")
+    else:
+        print("[警告] 未找到验证集目录，将使用训练集进行验证")
 
-    train_dataset = DocumentImageDataset.__new__(DocumentImageDataset)
-    train_dataset.transform = train_transform
-    train_dataset.class_to_idx = full_dataset.class_to_idx
-    train_dataset.samples = train_samples
-
-    val_dataset = DocumentImageDataset.__new__(DocumentImageDataset)
-    val_dataset.transform = eval_transform
-    val_dataset.class_to_idx = full_dataset.class_to_idx
-    val_dataset.samples = val_samples
-
-    print(f"训练集: {len(train_samples)} 张, 验证集: {len(val_samples)} 张\n")
+    print(f"训练集: {len(train_dataset)} 张\n")
 
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=4
     )
 
     # 加载测试集（如果存在）
@@ -182,7 +173,7 @@ def train_cnn(
         test_dataset = DocumentImageDataset(test_dir, classes, transform=eval_transform)
         if len(test_dataset) > 0:
             test_loader = DataLoader(
-                test_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+                test_dataset, batch_size=batch_size, shuffle=False, num_workers=4
             )
             print(f"测试集: {len(test_dataset)} 张\n")
 
@@ -194,7 +185,7 @@ def train_cnn(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6, verbose=True
+        optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6
     )
 
     # 训练历史
@@ -441,7 +432,6 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--output-dir", type=str, default="training/output")
     args = parser.parse_args()
@@ -449,25 +439,29 @@ if __name__ == "__main__":
     random.seed(42)
     np.random.seed(42)
     torch.manual_seed(42)
+    torch.set_num_threads(2)  # 每个 worker 用 2 线程计算，4 workers × 2 = 8 线程
 
     if args.dataset:
         if args.dataset not in settings.DATASETS:
             print(f"错误: 未知数据集 '{args.dataset}'")
             sys.exit(1)
         ds_config = settings.DATASETS[args.dataset]
-        data_dir = ds_config["data_dir"]
+        data_dir = ds_config["train_dir"]
         classes = ds_config["classes"]
-        # 自动推断测试集目录
+        # 自动从 config 读取 val/test 目录
+        val_dir = ds_config.get("val_dir")
+        if val_dir and not os.path.isdir(val_dir):
+            val_dir = None
         if not args.test_dir:
-            parent = os.path.dirname(data_dir)
-            test_dir = os.path.join(parent, "test")
-            if not os.path.isdir(test_dir):
+            test_dir = ds_config.get("test_dir")
+            if test_dir and not os.path.isdir(test_dir):
                 test_dir = None
         else:
             test_dir = args.test_dir
     elif args.data_dir:
         data_dir = args.data_dir
         classes = settings.DOCUMENT_CLASSES
+        val_dir = args.val_dir
         test_dir = args.test_dir
     else:
         print("错误: 请指定 --dataset 或 --data-dir")
@@ -476,11 +470,11 @@ if __name__ == "__main__":
     train_cnn(
         data_dir=data_dir,
         classes=classes,
+        val_dir=val_dir,
         test_dir=test_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.lr,
-        val_ratio=args.val_ratio,
         patience=args.patience,
         output_dir=os.path.join(args.output_dir, "cnn"),
     )

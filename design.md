@@ -163,7 +163,20 @@ training/
 2. **结果展示**: 分类结果（类别、置信度）、OCR 提取内容
 3. **历史记录**: 本地存储，按时间倒序显示
 
-## 10. 开发原则
+## 10. 部署注意事项
+
+### 10.1 AutoDL / 国内服务器
+AutoDL 等国内 GPU 服务器无法直接访问 HuggingFace，需要设置镜像源：
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+python training/scripts/train_gnn.py --dataset rvl_cdip --model both
+```
+
+### 10.2 macOS Apple Silicon
+- Python 3.12 可能遇到 SSL 证书问题，运行：`/Applications/Python\ 3.12/Install\ Certificates.command`
+- PyTorch 支持 MPS 加速，但当前代码默认使用 CPU
+
+## 11. 开发原则
 
 - **简化优先**: MVP 先行，避免过度工程化
 - **模块化设计**: 清晰的职责分离

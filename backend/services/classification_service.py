@@ -1,5 +1,5 @@
 import os
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from backend.schemas.classification import ClassificationRequest, ClassificationResponse
 from typing import List, Dict, Any, Optional, Tuple

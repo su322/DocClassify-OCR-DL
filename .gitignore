@@ -14,4 +14,6 @@ __pycache__/
 
 .env
 
-training/data/rvl_cdip
+training/data/rvl_cdip/test
+training/data/rvl_cdip/train
+training/data/rvl_cdip/val

@@ -42,7 +42,7 @@ class OCRService:
         Returns:
             版面类型标签，如 "title", "text", "figure", "table", "header", "footer" 等
         """
-        if not layout_boxes or not box or len(box) < 4:
+        if not layout_boxes or box is None or len(box) < 4:
             return "text"
 
         best_label = "text"
@@ -66,22 +66,22 @@ class OCRService:
         return best_label
 
     @staticmethod
-    def _compute_iou(box1: List[float], box2: List[float]) -> float:
+    def _compute_iou(box1, box2) -> float:
         """计算两个轴对齐矩形的 IoU"""
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
+        x1 = max(float(box1[0]), float(box2[0]))
+        y1 = max(float(box1[1]), float(box2[1]))
+        x2 = min(float(box1[2]), float(box2[2]))
+        y2 = min(float(box1[3]), float(box2[3]))
 
-        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
         if intersection == 0:
             return 0.0
 
-        area1 = max(0, box1[2] - box1[0]) * max(0, box1[3] - box1[1])
-        area2 = max(0, box2[2] - box2[0]) * max(0, box2[3] - box2[1])
+        area1 = max(0.0, float(box1[2]) - float(box1[0])) * max(0.0, float(box1[3]) - float(box1[1]))
+        area2 = max(0.0, float(box2[2]) - float(box2[0])) * max(0.0, float(box2[3]) - float(box2[1]))
         union = area1 + area2 - intersection
 
-        return intersection / union if union > 0 else 0.0
+        return float(intersection / union) if union > 0 else 0.0
 
     def process_document(
         self, file_path: str, filename: str, document_id: str

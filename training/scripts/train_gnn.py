@@ -98,7 +98,7 @@ def prepare_train_data(data_dir: str, classes: list) -> list:
         file_list = [
             f
             for f in os.listdir(class_dir)
-            if f.endswith((".pdf", ".png", ".jpg", ".jpeg"))
+            if f.lower().endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
         ]
         print(f"  [{class_name}] 找到 {len(file_list)} 个文件")
 

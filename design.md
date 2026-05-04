@@ -22,7 +22,7 @@ graph TD
 | **OCR / 版面分析** | PaddleOCR (PP-StructureV3) | ✅ 已确认 | 处理中英文效果好，自带版面分析能力 |
 | **文本嵌入** | SentenceTransformer (paraphrase-multilingual-MiniLM-L12-v2) | ✅ 已确认 | 多语言支持，384维输出，将 OCR 文本转为向量 |
 | **分类模型** | GCN / GAT (图神经网络) + CNN (ResNet18) Baseline | ✅ 已确认 | GNN 结合文本语义与空间布局，CNN 作为对比基线 |
-| **数据集** | RVL-CDIP (16类文档图像) | ✅ 已确认 | 文档分类领域标准 benchmark，40万张图像 |
+| **数据集** | RVL-CDIP (16类文档图像) | ✅ 已确认 | 文档分类领域标准 benchmark，47996张图像 |
 | **数据库** | SQLite | ✅ 已确认 | 轻量级本地数据库，无需额外配置 |
 | **前端展示** | HTML/CSS/JavaScript | ✅ 已确认 | 简单前端页面，提供上传、分类展示和历史记录 |
 
@@ -38,7 +38,7 @@ graph TD
   *CNN 只能处理像素网格，无法显式建模文档元素之间的结构关系。GNN 将每个文本/表格区域视为节点，通过空间距离构建边，能捕捉文档的布局结构信息。此外，GNN 的图构建策略（节点设计、边构建规则、特征融合方式）可以作为论文的创新点。*
 
 - [x] **对比实验如何设计？**
-  *三个模型对比：(1) CNN (ResNet18) — 传统像素级分类 baseline；(2) GCN — 基础图神经网络，邻居平均聚合；(3) GAT — 图注意力网络，注意力加权聚合。三个模型使用相同数据集（RVL-CDIP）和数据划分，确保对比公平。*
+  *三个模型对比：(1) CNN (ResNet18) — 传统像素级分类 baseline；(2) GCN — 基础图神经网络，邻居平均聚合；(3) GAT — 图注意力网络，注意力加权聚合。三个模型使用相同数据集（RVL-CDIP）和相同的数据划分（80/10/10），确保对比公平。*
 
 - [x] **异步任务架构：手写轻量级脚本 vs Celery？**
   *采用同步处理，简化架构，适合个人毕设开发和演示。*
@@ -114,10 +114,11 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 ### 7.3 输出结果
 训练完成后自动生成：
 - **训练曲线**: Loss/Acc 随 Epoch 变化图
-- **混淆矩阵**: 各类别分类结果的热力图
-- **分类报告**: 每类的 Precision/Recall/F1
-- **对比表格**: Markdown + LaTeX 格式的三模型对比表
+- **混淆矩阵**: 各类别分类结果的热力图（验证集 + 测试集）
+- **分类报告**: 每类的 Precision/Recall/F1（验证集 + 测试集）
+- **对比表格**: Markdown + LaTeX 格式的三模型对比表（含准确率、F1、参数量、训练时间）
 - **模型权重**: `.pth` 格式的最佳模型文件
+- **结果摘要**: `result_summary.json`（供对比脚本汇总使用）
 
 ## 8. 项目结构
 ```
@@ -162,7 +163,20 @@ training/
 2. **结果展示**: 分类结果（类别、置信度）、OCR 提取内容
 3. **历史记录**: 本地存储，按时间倒序显示
 
-## 10. 开发原则
+## 10. 部署注意事项
+
+### 10.1 AutoDL / 国内服务器
+AutoDL 等国内 GPU 服务器无法直接访问 HuggingFace，需要设置镜像源：
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+python training/scripts/train_gnn.py --dataset rvl_cdip --model both
+```
+
+### 10.2 macOS Apple Silicon
+- Python 3.12 可能遇到 SSL 证书问题，运行：`/Applications/Python\ 3.12/Install\ Certificates.command`
+- PyTorch 支持 MPS 加速，但当前代码默认使用 CPU
+
+## 11. 开发原则
 
 - **简化优先**: MVP 先行，避免过度工程化
 - **模块化设计**: 清晰的职责分离

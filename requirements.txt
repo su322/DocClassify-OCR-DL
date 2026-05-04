@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic-settings
 
-paddlepaddle # cpu version
+paddlepaddle-gpu==3.3.1 # gpu version
 paddleocr[all]
 paddlex[ocr]
 

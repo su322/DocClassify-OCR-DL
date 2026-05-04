@@ -82,13 +82,13 @@ class ClassificationService:
         使用文档宽高进行归一化，使不同分辨率的文档具有一致的空间表示。
         特征: [相对中心x, 相对中心y, 相对宽度, 相对高度]
         """
-        center_x = (box[0] + box[2]) / 2
-        center_y = (box[1] + box[3]) / 2
-        width = box[2] - box[0]
-        height = box[3] - box[1]
+        center_x = float(box[0] + box[2]) / 2
+        center_y = float(box[1] + box[3]) / 2
+        width = float(box[2] - box[0])
+        height = float(box[3] - box[1])
 
         # 用文档尺寸归一化，得到 0~1 范围的相对坐标
-        if doc_width > 0 and doc_height > 0:
+        if float(doc_width) > 0 and float(doc_height) > 0:
             spatial_features = np.array(
                 [
                     center_x / doc_width,
@@ -119,6 +119,8 @@ class ClassificationService:
         节点特征 = 文本嵌入(384) + 空间特征(4) + 版面类型 one-hot(10) = 398 维
         边 = 空间距离小于阈值的节点对
         """
+        doc_width = float(doc_width) if doc_width else 0
+        doc_height = float(doc_height) if doc_height else 0
         node_features = []
         all_boxes = []
 
@@ -188,11 +190,11 @@ class ClassificationService:
             "num_nodes": len(node_features),
         }
 
-    def _calculate_distance(self, box1: List[float], box2: List[float]) -> float:
+    def _calculate_distance(self, box1, box2) -> float:
         """计算两个文本框中心点之间的欧氏距离"""
-        center1 = [(box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2]
-        center2 = [(box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2]
-        return np.sqrt((center1[0] - center2[0]) ** 2 + (center1[1] - center2[1]) ** 2)
+        center1 = [(float(box1[0]) + float(box1[2])) / 2, (float(box1[1]) + float(box1[3])) / 2]
+        center2 = [(float(box2[0]) + float(box2[2])) / 2, (float(box2[1]) + float(box2[3])) / 2]
+        return float(np.sqrt((center1[0] - center2[0]) ** 2 + (center1[1] - center2[1]) ** 2))
 
     def _load_trained_model(self):
         """加载训练好的GNN模型"""

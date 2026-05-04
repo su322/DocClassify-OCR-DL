@@ -1,0 +1,26 @@
+模型: CNN (ResNet18 Baseline)
+数据集: val
+============================================================
+
+                        precision    recall  f1-score   support
+
+                letter     0.8941    0.7575    0.8201       301
+                  form     0.5902    0.7659    0.6667       299
+                 email     0.9727    0.9532    0.9628       299
+           handwritten     0.8914    0.9033    0.8974       300
+         advertisement     0.8492    0.8662    0.8576       299
+     scientific_report     0.6444    0.6789    0.6612       299
+scientific_publication     0.9187    0.8725    0.8950       298
+         specification     0.8500    0.8500    0.8500       300
+           file_folder     0.8343    0.9400    0.8840       300
+          news_article     0.8598    0.7767    0.8161       300
+                budget     0.8168    0.7133    0.7616       300
+               invoice     0.8108    0.8027    0.8067       299
+          presentation     0.6742    0.8000    0.7317       300
+         questionnaire     0.8273    0.6867    0.7505       300
+                resume     0.9106    0.9167    0.9136       300
+                  memo     0.9167    0.8462    0.8800       299
+
+              accuracy                         0.8206      4793
+             macro avg     0.8288    0.8206    0.8222      4793
+          weighted avg     0.8288    0.8206    0.8222      4793

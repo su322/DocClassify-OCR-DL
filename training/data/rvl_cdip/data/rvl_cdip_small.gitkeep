@@ -1,0 +1,2 @@
+下载kaggle上的rvl_cdip_small数据集放进来，最终data/下应该是16个文件夹，分别是rvl_cdip_small的16个类别，每个文件夹里是对应类别的图片数据。这个.gitkeep文件是为了让git能够跟踪空文件夹，因为git默认不跟踪空文件夹。
+然后在根目录运行prepare_rvl_cdip.py即可整理划分数据集。

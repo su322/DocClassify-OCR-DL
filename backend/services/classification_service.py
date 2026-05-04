@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 from backend.schemas.classification import ClassificationRequest, ClassificationResponse
 from typing import List, Dict, Any, Optional, Tuple
 from backend.schemas.ocr import OCRRegion, TableRegion, TableCell

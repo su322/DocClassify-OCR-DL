@@ -24,7 +24,7 @@ from backend.core.config import settings
 # 配置
 # ============================================================
 DATASET = "rvl_cdip"
-SAMPLES_PER_CLASS = 3  # 每个类别取几张
+SAMPLES_PER_CLASS = 2  # 每个类别取几张
 TEST_DIR = "training/data/rvl_cdip/_test_small"  # 临时小数据集目录
 
 
@@ -67,7 +67,7 @@ def create_small_dataset():
 def test_cnn():
     """测试 CNN 训练（无独立验证集时自动用训练集代替）"""
     print("=" * 60)
-    print("  测试 1: CNN 训练 (3 epochs)")
+    print("  测试 1: CNN 训练 (2 epochs)")
     print("  注意: 临时目录无 val 文件夹，将用训练集代替验证集")
     print("=" * 60)
 
@@ -82,7 +82,7 @@ def test_cnn():
             classes=classes,
             val_dir=None,
             test_dir=None,
-            epochs=3,
+            epochs=2,
             batch_size=4,
             learning_rate=0.001,
             patience=10,

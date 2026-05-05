@@ -225,6 +225,8 @@ def evaluate(model, loader, criterion, device):
 
     with torch.no_grad():
         for batch in loader:
+            if batch.num_graphs == 0:
+                continue
             batch = batch.to(device)
             output = model(batch.x, batch.edge_index, batch.batch)
             loss = criterion(output, batch.y.squeeze(-1))
@@ -338,6 +340,8 @@ def train_model(
         train_total = 0
 
         for batch in train_loader:
+            if batch.num_graphs == 0:
+                continue
             batch = batch.to(device)
             optimizer.zero_grad()
             output = model(batch.x, batch.edge_index, batch.batch)

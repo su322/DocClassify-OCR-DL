@@ -461,7 +461,7 @@ def train_model(
 def _generate_plots(
     history: dict,
     preds: list,
-    labels: list,
+    true_labels: list,
     model_name: str,
     output_dir: str,
     class_names: list = None,
@@ -505,8 +505,8 @@ def _generate_plots(
         print(f"Loss/Acc 曲线已保存: {loss_acc_path}")
 
         # ---- 3. 混淆矩阵 ----
-        if preds and labels:
-            cm = confusion_matrix(labels, preds)
+        if preds and true_labels:
+            cm = confusion_matrix(true_labels, preds)
             plt.figure(figsize=(10, 8))
             sns.heatmap(
                 cm,
@@ -529,7 +529,8 @@ def _generate_plots(
 
             # ---- 4. 分类报告 ----
             report = classification_report(
-                labels, preds, target_names=class_names, digits=4
+                true_labels, preds, target_names=class_names, digits=4,
+                labels=list(range(len(class_names))), zero_division=0
             )
             report_path = os.path.join(
                 output_dir, f"{model_name}_classification_report.txt"

@@ -164,7 +164,7 @@ def test_gnn_train():
 
         for model_name in ["gcn", "gat"]:
             print(f"\n  --- {model_name.upper()} ---")
-            history = train_model(
+            result = train_model(
                 model_name=model_name,
                 dataset=train_data,
                 val_dataset=val_data,
@@ -175,7 +175,7 @@ def test_gnn_train():
                 patience=10,
                 output_dir=f"training/output/_test_{model_name}",
             )
-            print(f"  {model_name.upper()} 最佳验证准确率: {max(history['val_acc']):.4f}")
+            print(f"  {model_name.upper()} 最佳验证准确率: {result['val_accuracy']:.4f}")
             print(f"  ✅ {model_name.upper()} 训练通过")
 
         print("\n  ✅ GNN 训练全部通过\n")

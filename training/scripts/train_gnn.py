@@ -140,11 +140,30 @@ def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save
         for idx, filename in enumerate(pending_files):
             file_path = os.path.join(class_dir, filename)
             file_key = os.path.join(class_name, filename)
-            print(f"    [{idx+1}/{len(pending_files)}] {filename}...", end=" ")
+            print(f"    处理: {filename}...", end=" ")
 
             try:
                 doc_id = f"train_{class_name}_{filename}"
-                ocr_result = ocr_service.process_document(file_path, filename, doc_id)
+
+                # macOS 上 PaddleOCR 可能无法直接处理 .tif，转为 .png 兼容
+                actual_file_path = file_path
+                tmp_png = None
+                if filename.lower().endswith((".tif", ".tiff")):
+                    from PIL import Image
+                    import tempfile
+                    img = Image.open(file_path)
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    tmp_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                    img.save(tmp_png.name)
+                    tmp_png.close()
+                    actual_file_path = tmp_png.name
+
+                ocr_result = ocr_service.process_document(actual_file_path, filename, doc_id)
+
+                # 清理临时文件
+                if tmp_png and os.path.exists(tmp_png.name):
+                    os.unlink(tmp_png.name)
 
                 doc_width = float(ocr_result.width) if ocr_result.width else 0
                 doc_height = float(ocr_result.height) if ocr_result.height else 0
@@ -170,7 +189,7 @@ def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save
                 processed_files.add(file_key)
                 total_new += 1
                 print(
-                    f"OK (节点: {graph['num_nodes']}, 边: {graph['edges'].shape[1] if graph['edges'].size > 0 else 0})"
+                    f"OK [{len(dataset)}] (节点: {graph['num_nodes']}, 边: {graph['edges'].shape[1] if graph['edges'].size > 0 else 0})"
                 )
 
                 # 每 save_interval 张保存一次缓存
@@ -208,11 +227,11 @@ def evaluate(model, loader, criterion, device):
         for batch in loader:
             batch = batch.to(device)
             output = model(batch.x, batch.edge_index, batch.batch)
-            loss = criterion(output, batch.y.squeeze())
+            loss = criterion(output, batch.y.squeeze(-1))
             total_loss += loss.item() * batch.num_graphs
             _, predicted = torch.max(output, dim=1)
             all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(batch.y.squeeze().cpu().numpy())
+            all_labels.extend(batch.y.squeeze(-1).cpu().numpy())
             total += batch.num_graphs
 
     avg_loss = total_loss / total
@@ -322,13 +341,13 @@ def train_model(
             batch = batch.to(device)
             optimizer.zero_grad()
             output = model(batch.x, batch.edge_index, batch.batch)
-            loss = criterion(output, batch.y.squeeze())
+            loss = criterion(output, batch.y.squeeze(-1))
             loss.backward()
             optimizer.step()
 
             train_loss += loss.item() * batch.num_graphs
             _, predicted = torch.max(output, dim=1)
-            train_correct += (predicted == batch.y.squeeze()).sum().item()
+            train_correct += (predicted == batch.y.squeeze(-1)).sum().item()
             train_total += batch.num_graphs
 
         avg_train_loss = train_loss / len(dataset)

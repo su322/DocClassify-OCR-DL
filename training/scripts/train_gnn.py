@@ -74,16 +74,44 @@ def get_model(
 # ============================================================
 
 
-def prepare_train_data(data_dir: str, classes: list) -> list:
+def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save_interval: int = 100) -> list:
     """
     准备训练数据，将每个文档转换为 PyG Data 对象
+    支持断点续跑：每 save_interval 张保存一次，中断后可从缓存恢复
 
     Args:
         data_dir: 训练数据目录
         classes: 类别列表（决定 class_to_idx 映射）
+        cache_dir: 缓存目录，默认 data_dir/../cache
+        save_interval: 每多少张保存一次
     """
+    import pickle
+
     classification_service = ClassificationService(document_classes=classes)
+
+    # 设置缓存目录
+    if cache_dir is None:
+        cache_dir = os.path.join(os.path.dirname(data_dir), "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # 从缓存加载已处理的数据
+    cache_file = os.path.join(cache_dir, "processed_data.pkl")
+    processed_files = set()
     dataset = []
+
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "rb") as f:
+                cached_data = pickle.load(f)
+                dataset = cached_data.get("dataset", [])
+                processed_files = set(cached_data.get("processed_files", []))
+            print(f"  从缓存恢复: {len(dataset)} 个样本, {len(processed_files)} 个文件已处理")
+        except Exception as e:
+            print(f"  缓存加载失败: {e}，重新开始")
+            dataset = []
+            processed_files = set()
+
+    total_new = 0
 
     for class_name in sorted(os.listdir(data_dir)):
         class_dir = os.path.join(data_dir, class_name)
@@ -100,11 +128,19 @@ def prepare_train_data(data_dir: str, classes: list) -> list:
             for f in os.listdir(class_dir)
             if f.lower().endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
         ]
-        print(f"  [{class_name}] 找到 {len(file_list)} 个文件")
+        file_list.sort()
 
-        for idx, filename in enumerate(file_list):
+        # 过滤掉已处理的文件
+        pending_files = [f for f in file_list if os.path.join(class_name, f) not in processed_files]
+        if len(pending_files) < len(file_list):
+            print(f"  [{class_name}] 找到 {len(file_list)} 个文件, {len(pending_files)} 个待处理")
+        else:
+            print(f"  [{class_name}] 找到 {len(file_list)} 个文件")
+
+        for idx, filename in enumerate(pending_files):
             file_path = os.path.join(class_dir, filename)
-            print(f"    [{idx+1}/{len(file_list)}] {filename}...", end=" ")
+            file_key = os.path.join(class_name, filename)
+            print(f"    [{idx+1}/{len(pending_files)}] {filename}...", end=" ")
 
             try:
                 doc_id = f"train_{class_name}_{filename}"
@@ -122,6 +158,7 @@ def prepare_train_data(data_dir: str, classes: list) -> list:
 
                 if graph["num_nodes"] == 0:
                     print("跳过（无有效节点）")
+                    processed_files.add(file_key)
                     continue
 
                 data = Data(
@@ -130,12 +167,26 @@ def prepare_train_data(data_dir: str, classes: list) -> list:
                     y=torch.tensor([label], dtype=torch.long),
                 )
                 dataset.append(data)
+                processed_files.add(file_key)
+                total_new += 1
                 print(
                     f"OK (节点: {graph['num_nodes']}, 边: {graph['edges'].shape[1] if graph['edges'].size > 0 else 0})"
                 )
 
+                # 每 save_interval 张保存一次缓存
+                if total_new % save_interval == 0:
+                    with open(cache_file, "wb") as f:
+                        pickle.dump({"dataset": dataset, "processed_files": list(processed_files)}, f)
+                    print(f"  [自动保存] 已处理 {len(dataset)} 个样本")
+
             except Exception as e:
                 print(f"失败: {e}")
+
+    # 最终保存
+    if total_new > 0:
+        with open(cache_file, "wb") as f:
+            pickle.dump({"dataset": dataset, "processed_files": list(processed_files)}, f)
+        print(f"  [最终保存] 共 {len(dataset)} 个样本")
 
     return dataset
 

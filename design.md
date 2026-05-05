@@ -89,7 +89,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 ### RVL-CDIP
 - **规模**: 47996 张灰度文档图像，16个类别
 - **划分**: 80% 训练 / 10% 验证 / 10% 测试（按类别内随机划分）
-- **来源**: [HuggingFace](https://huggingface.co/datasets/rvl_cdip)
+- **来源**: [Kaggle - RVL-CDIP Small](https://www.kaggle.com/datasets/uditamin/rvl-cdip-small)
 - **预处理**: 通过 `prepare_rvl_cdip.py` 脚本自动完成文件夹重命名（带空格→下划线）和数据划分
 
 ## 7. 训练与评估
@@ -100,6 +100,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | `train_cnn.py` | CNN 训练 | `python training/scripts/train_cnn.py --dataset rvl_cdip` |
 | `train_gnn.py` | GCN/GAT 训练与对比 | `python training/scripts/train_gnn.py --dataset rvl_cdip --model both` |
 | `compare_results.py` | 汇总对比结果 | `python training/scripts/compare_results.py` |
+| `test_train.py` | 训练流程快速验证（每类2张，2轮） | `python training/scripts/test_train.py` |
 
 ### 7.2 训练配置
 | 参数 | CNN | GCN/GAT |
@@ -142,7 +143,8 @@ training/
 │   ├── train_cnn.py           # CNN 训练脚本
 │   ├── train_gnn.py           # GCN/GAT 训练脚本
 │   ├── prepare_rvl_cdip.py    # RVL-CDIP 数据预处理
-│   └── compare_results.py     # 对比结果汇总
+│   ├── compare_results.py     # 对比结果汇总
+│   └── test_train.py          # 训练流程快速验证
 ├── data/
 │   └── rvl_cdip/              # RVL-CDIP 数据集
 │       ├── train/             # 训练集（按类别分文件夹，~38391张）

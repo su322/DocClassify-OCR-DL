@@ -294,8 +294,8 @@ def train_model(
     else:
         print(f"训练集: {len(dataset)} 样本, 验证集: 无\n")
 
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False) if val_dataset else None
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=True) if val_dataset else None
 
     # 确定模型参数
     sample = dataset[0]

@@ -102,9 +102,9 @@ def prepare_train_data(data_dir: str, classes: list) -> list:
         ]
         print(f"  [{class_name}] 找到 {len(file_list)} 个文件")
 
-        for filename in file_list:
+        for idx, filename in enumerate(file_list):
             file_path = os.path.join(class_dir, filename)
-            print(f"    处理: {filename}...", end=" ")
+            print(f"    [{idx+1}/{len(file_list)}] {filename}...", end=" ")
 
             try:
                 doc_id = f"train_{class_name}_{filename}"

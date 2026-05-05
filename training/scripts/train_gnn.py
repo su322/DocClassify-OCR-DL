@@ -543,7 +543,7 @@ def run_comparison(dataset: list, val_dataset: list = None, **kwargs):
         print(f"  开始训练: {model_name.upper()}")
         print(f"{'#'*60}\n")
         set_seed(42)  # 每个模型使用相同的种子，确保数据划分一致
-        history = train_model(model_name, dataset, **kwargs)
+        history = train_model(model_name, dataset, val_dataset=val_dataset, **kwargs)
         results[model_name] = {
             "best_val_loss": min(history["val_loss"]),
             "best_val_acc": max(history["val_acc"]),
@@ -653,13 +653,8 @@ if __name__ == "__main__":
 
     print()
 
-    if not dataset:
-        print("错误: 没有有效的训练数据，请检查数据目录。")
-        sys.exit(1)
-
     train_kwargs = {
         "classes": classes,
-        "val_dataset": val_dataset,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.lr,
@@ -667,7 +662,11 @@ if __name__ == "__main__":
         "output_dir": args.output_dir,
     }
 
+    if not dataset:
+        print("错误: 没有有效的训练数据，请检查数据目录。")
+        sys.exit(1)
+
     if args.model == "both":
-        run_comparison(dataset, **train_kwargs)
+        run_comparison(dataset, val_dataset=val_dataset, **train_kwargs)
     else:
-        train_model(args.model, dataset, **train_kwargs)
+        train_model(args.model, dataset, val_dataset=val_dataset, **train_kwargs)

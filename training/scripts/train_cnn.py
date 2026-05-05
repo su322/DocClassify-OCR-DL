@@ -158,8 +158,9 @@ def train_cnn(
         if len(val_dataset) > 0:
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
             print(f"验证集: {len(val_dataset)} 张")
-    else:
+    if val_loader is None:
         print("[警告] 未找到验证集目录，将使用训练集进行验证")
+        val_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
     print(f"训练集: {len(train_dataset)} 张\n")
 

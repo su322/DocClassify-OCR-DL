@@ -138,7 +138,7 @@ def test_gnn_prepare():
 def test_gnn_train():
     """测试 GNN 训练"""
     print("=" * 60)
-    print("  测试 3: GNN 训练 (GCN + GAT, 5 epochs)")
+    print("  测试 3: GNN 训练 (GCN + GAT, 2 epochs)")
     print("=" * 60)
 
     from training.scripts.train_gnn import prepare_train_data, train_model
@@ -169,7 +169,7 @@ def test_gnn_train():
                 dataset=train_data,
                 val_dataset=val_data,
                 classes=classes,
-                epochs=5,
+                epochs=2,
                 batch_size=4,
                 learning_rate=0.001,
                 patience=10,

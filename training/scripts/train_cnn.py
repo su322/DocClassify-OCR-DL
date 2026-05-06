@@ -161,16 +161,16 @@ def train_cnn(
     if val_dir and os.path.isdir(val_dir):
         val_dataset = DocumentImageDataset(val_dir, classes, transform=eval_transform)
         if len(val_dataset) > 0:
-            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
             print(f"验证集: {len(val_dataset)} 张")
     if val_loader is None:
         print("[警告] 未找到验证集目录，将使用训练集进行验证")
-        val_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        val_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     print(f"训练集: {len(train_dataset)} 张\n")
 
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=4
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True
     )
 
     # 加载测试集（如果存在）
@@ -179,7 +179,7 @@ def train_cnn(
         test_dataset = DocumentImageDataset(test_dir, classes, transform=eval_transform)
         if len(test_dataset) > 0:
             test_loader = DataLoader(
-                test_dataset, batch_size=batch_size, shuffle=False, num_workers=4
+                test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True
             )
             print(f"测试集: {len(test_dataset)} 张\n")
 
@@ -436,7 +436,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", type=str, default=None)
     parser.add_argument("--test-dir", type=str, default=None, help="测试集目录")
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--output-dir", type=str, default="training/output")

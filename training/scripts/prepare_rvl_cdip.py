@@ -9,6 +9,9 @@ RVL-CDIP 数据集预处理脚本（适用于没有划分的情况）
 
 用法:
     python training/scripts/prepare_rvl_cdip.py
+
+注意：
+    由于是随机划分的，在执行train_gnn的过程中，如果数据集划分不同的话，产生的缓存内容在每一次都是不同的，所以如果在其他机器上重新划分了，会有不同的地方需要重新处理，但大部分可能还是有的
 """
 
 import os

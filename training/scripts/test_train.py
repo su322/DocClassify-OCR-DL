@@ -26,6 +26,7 @@ from backend.core.config import settings
 DATASET = "rvl_cdip"
 SAMPLES_PER_CLASS = 2  # 每个类别取几张
 TEST_DIR = "training/data/rvl_cdip/_test_small"  # 临时小数据集目录
+TEST_CACHE = "training/data/rvl_cdip/_test_cache"  # 测试专用缓存（避免污染正式缓存）
 
 
 def create_small_dataset():
@@ -112,7 +113,7 @@ def test_gnn_prepare():
         dataset = prepare_train_data(
             data_dir=TEST_DIR,
             classes=classes,
-            cache_dir=None,  # 不用缓存，直接测试
+            cache_dir=TEST_CACHE,  # 使用独立缓存，不加载正式 pkl
         )
         print(f"\n  共生成 {len(dataset)} 个图数据")
 
@@ -150,7 +151,7 @@ def test_gnn_train():
         dataset = prepare_train_data(
             data_dir=TEST_DIR,
             classes=classes,
-            cache_dir=None,
+            cache_dir=TEST_CACHE,
         )
 
         if len(dataset) == 0:
@@ -192,6 +193,8 @@ def cleanup():
     print("清理临时文件...")
     if os.path.exists(TEST_DIR):
         shutil.rmtree(TEST_DIR)
+    if os.path.exists(TEST_CACHE):
+        shutil.rmtree(TEST_CACHE)
     for d in ["training/output/_test_cnn", "training/output/_test_gcn", "training/output/_test_gat"]:
         if os.path.exists(d):
             shutil.rmtree(d)

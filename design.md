@@ -102,15 +102,20 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | `compare_results.py` | 汇总对比结果 | `python training/scripts/compare_results.py` |
 | `test_train.py` | 训练流程快速验证（每类2张，2轮） | `python training/scripts/test_train.py` |
 
+常用参数：`--epochs`（训练轮数）、`--batch-size`（批大小）、`--lr`（学习率）、`--patience`（早停耐心值）、`--model gcn|gat|both`（仅 GNN）
+
 ### 7.2 训练配置
 | 参数 | CNN | GCN/GAT |
 |---|---|---|
 | Epochs | 50 | 200 |
-| Batch Size | 32 | 16 |
+| Batch Size | 256 | 256 |
 | Learning Rate | 0.001 | 0.001 |
 | 早停 Patience | 10 | 20 |
 | 学习率调度 | ReduceLROnPlateau | ReduceLROnPlateau |
 | 正则化 | Dropout + weight_decay | Dropout(0.5) + BatchNorm + weight_decay |
+| DataLoader | num_workers=4, pin_memory=True | pin_memory=True, drop_last=True |
+| 设备选择 | CUDA > MPS > CPU 自动选择 | CUDA > MPS > CPU 自动选择 |
+| 断点续跑 | 不支持 | 支持（pickle 缓存，每 100 张自动保存） |
 
 ### 7.3 输出结果
 训练完成后自动生成：
@@ -176,7 +181,8 @@ python training/scripts/train_gnn.py --dataset rvl_cdip --model both
 
 ### 10.2 macOS Apple Silicon
 - Python 3.12 可能遇到 SSL 证书问题，运行：`/Applications/Python\ 3.12/Install\ Certificates.command`
-- PyTorch 支持 MPS 加速，但当前代码默认使用 CPU
+- 自动支持 MPS 加速（CUDA > MPS > CPU 优先级选择）
+- macOS 上 PaddleOCR 可能无法直接处理 `.tif` 格式，代码已自动转为 `.png` 兼容
 
 ## 11. 开发原则
 

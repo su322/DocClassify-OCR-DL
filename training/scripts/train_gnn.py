@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 
 # 添加项目根目录到Python路径
@@ -74,7 +74,42 @@ def get_model(
 # ============================================================
 
 
-def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save_interval: int = 100) -> list:
+class GraphDataset(Dataset):
+    """
+    按需加载分片 .pt 文件的图数据集
+    内存占用从 ~21GB 降到 ~500MB
+    """
+
+    def __init__(self, cache_dir: str):
+        super().__init__(root=cache_dir)
+        self.cache_dir = cache_dir
+        self.shard_paths = sorted([
+            os.path.join(cache_dir, f)
+            for f in os.listdir(cache_dir)
+            if f.startswith("shard_") and f.endswith(".pt")
+        ])
+        # 计算每个分片的样本数
+        self.shard_lengths = []
+        for p in self.shard_paths:
+            shard = torch.load(p, weights_only=False)
+            self.shard_lengths.append(len(shard))
+        self.total = sum(self.shard_lengths)
+        # 构建索引映射: 全局索引 -> (分片索引, 分片内索引)
+        self._index_map = []
+        for shard_idx, length in enumerate(self.shard_lengths):
+            for local_idx in range(length):
+                self._index_map.append((shard_idx, local_idx))
+
+    def len(self):
+        return self.total
+
+    def get(self, idx):
+        shard_idx, local_idx = self._index_map[idx]
+        shard = torch.load(self.shard_paths[shard_idx], weights_only=False)
+        return shard[local_idx]
+
+
+def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save_interval: int = 100):
     """
     准备训练数据，将每个文档转换为 PyG Data 对象
     支持断点续跑：每 save_interval 张保存一次，中断后可从缓存恢复
@@ -299,8 +334,8 @@ def train_model(
     else:
         print(f"训练集: {len(dataset)} 样本, 验证集: 无\n")
 
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=True) if val_dataset else None
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=True) if val_dataset else None
 
     # 确定模型参数
     sample = dataset[0]
@@ -623,7 +658,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default=None,
-        help="使用预定义数据集: rvl_cdip / tobacco800（与 --data-dir 二选一）",
+        help="使用预定义数据集: rvl_cdip（与 --data-dir 二选一）",
     )
     parser.add_argument(
         "--data-dir",
@@ -632,7 +667,7 @@ if __name__ == "__main__":
         help="自定义训练数据目录（与 --dataset 二选一）",
     )
     parser.add_argument("--epochs", type=int, default=200, help="最大训练轮数")
-    parser.add_argument("--batch-size", type=int, default=16, help="批大小")
+    parser.add_argument("--batch-size", type=int, default=256, help="批大小")
     parser.add_argument("--lr", type=float, default=0.001, help="初始学习率")
     parser.add_argument("--patience", type=int, default=20, help="早停耐心值")
     parser.add_argument(
@@ -665,9 +700,48 @@ if __name__ == "__main__":
 
     set_seed(42)
 
+    # 始终先准备数据（自动跳过已处理文件，处理新增文件）
     print("\n开始准备训练数据...")
     dataset = prepare_train_data(data_dir, classes)
-    print(f"\n共准备 {len(dataset)} 个训练样本")
+
+    # 检查是否需要生成分片缓存（节省内存）
+    default_cache_dir = os.path.join(os.path.dirname(data_dir), "cache")
+    pkl_file = os.path.join(default_cache_dir, "processed_data.pkl")
+    shard_files = [
+        f for f in os.listdir(default_cache_dir)
+        if f.startswith("shard_") and f.endswith(".pt")
+    ] if os.path.isdir(default_cache_dir) else []
+
+    # 如果没有分片，或 pkl 比分片更新，自动生成分片
+    need_shard = False
+    if not shard_files:
+        need_shard = True
+    elif os.path.exists(pkl_file):
+        pkl_mtime = os.path.getmtime(pkl_file)
+        shard_mtime = max(os.path.getmtime(os.path.join(default_cache_dir, f)) for f in shard_files)
+        if pkl_mtime > shard_mtime:
+            need_shard = True
+            print("  检测到 pkl 已更新，重新生成分片...")
+
+    if need_shard and os.path.exists(pkl_file):
+        import pickle as _pkl
+        print("  正在生成分片缓存...")
+        with open(pkl_file, "rb") as f:
+            cached = _pkl.load(f)
+        all_data = cached.get("dataset", [])
+        SHARD_SIZE = 1000
+        for i in range(0, len(all_data), SHARD_SIZE):
+            shard = all_data[i:i + SHARD_SIZE]
+            shard_path = os.path.join(default_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
+            torch.save(shard, shard_path)
+        print(f"  分片完成: {len(all_data)} 个样本 → {(len(all_data) + SHARD_SIZE - 1) // SHARD_SIZE} 个分片")
+        shard_files = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+
+    if shard_files:
+        dataset = GraphDataset(default_cache_dir)
+        print(f"  使用按需加载模式: {len(dataset)} 个训练样本（内存占用低）")
+    else:
+        print(f"\n共准备 {len(dataset)} 个训练样本")
 
     # 准备验证集数据（如果存在 val 目录）
     val_dataset = None
@@ -676,9 +750,21 @@ if __name__ == "__main__":
     else:
         val_dir = None
     if val_dir and os.path.isdir(val_dir):
-        print("\n开始准备验证数据...")
-        val_dataset = prepare_train_data(val_dir, classes)
-        print(f"共准备 {len(val_dataset)} 个验证样本")
+        # 验证集用独立缓存目录（避免和训练集混淆）
+        val_cache_dir = os.path.join(os.path.dirname(val_dir), "cache", "val")
+        val_shard_files = [
+            f for f in os.listdir(val_cache_dir)
+            if f.startswith("shard_") and f.endswith(".pt")
+        ] if os.path.isdir(val_cache_dir) else []
+
+        if val_shard_files:
+            print(f"\n  检测到验证集分片缓存 ({len(val_shard_files)} 个分片)")
+            val_dataset = GraphDataset(val_cache_dir)
+            print(f"  共 {len(val_dataset)} 个验证样本（按需加载）")
+        else:
+            print("\n开始准备验证数据...")
+            val_dataset = prepare_train_data(val_dir, classes, cache_dir=val_cache_dir)
+            print(f"共准备 {len(val_dataset)} 个验证样本")
 
     print()
 

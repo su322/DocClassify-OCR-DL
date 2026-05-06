@@ -737,6 +737,15 @@ if __name__ == "__main__":
         old_shards = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
         for old_shard in old_shards:
             os.remove(os.path.join(default_cache_dir, old_shard))
+        # 强制刷新文件系统缓存（macOS/Linux）
+        os.sync()
+        # 验证删除成功
+        remaining = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+        if remaining:
+            print(f"  [警告] 仍有 {len(remaining)} 个分片未删除，强制删除...")
+            for r in remaining:
+                os.remove(os.path.join(default_cache_dir, r))
+            os.sync()
         if old_shards:
             print(f"  已删除 {len(old_shards)} 个旧分片")
         with open(pkl_file, "rb") as f:

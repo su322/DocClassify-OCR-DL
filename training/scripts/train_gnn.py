@@ -733,6 +733,12 @@ if __name__ == "__main__":
     if need_shard and os.path.exists(pkl_file):
         import pickle as _pkl
         print("  正在生成分片缓存...")
+        # 先删除所有旧分片（避免残留）
+        old_shards = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+        for old_shard in old_shards:
+            os.remove(os.path.join(default_cache_dir, old_shard))
+        if old_shards:
+            print(f"  已删除 {len(old_shards)} 个旧分片")
         with open(pkl_file, "rb") as f:
             cached = _pkl.load(f)
         all_data = cached.get("dataset", [])

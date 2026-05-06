@@ -272,7 +272,12 @@ def train_model(
 
     class_names = classes if classes else settings.DOCUMENT_CLASSES
     train_start_time = time.time()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
 
     # 创建输出目录
     model_output_dir = os.path.join(output_dir, model_name)

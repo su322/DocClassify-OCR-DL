@@ -113,7 +113,12 @@ def train_cnn(
     output_dir: str = "training/output/cnn"
 ):
     """训练 CNN 模型"""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     os.makedirs(output_dir, exist_ok=True)
     train_start_time = time.time()
 

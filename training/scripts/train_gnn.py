@@ -122,6 +122,8 @@ def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save
     """
     import pickle
 
+    data_type = "验证集" if "val" in data_dir else "训练集"
+
     classification_service = ClassificationService(document_classes=classes)
 
     # 设置缓存目录
@@ -145,6 +147,11 @@ def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save
             print(f"  缓存加载失败: {e}，重新开始")
             dataset = []
             processed_files = set()
+    else:
+        print(f"\n{'='*60}")
+        print(f"  未检测到缓存，开始准备 {data_type} 数据")
+        print(f"  数据目录: {data_dir}")
+        print(f"{'='*60}")
 
     total_new = 0
 

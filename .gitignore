@@ -17,3 +17,7 @@ __pycache__/
 training/data/rvl_cdip/test
 training/data/rvl_cdip/train
 training/data/rvl_cdip/val
+training/data/rvl_cdip/cache
+training/data/rvl_cdip/_test_cache
+training/data/rvl_cdip/_test_small
+training/output

@@ -310,7 +310,8 @@ def train_model(
     batch_size: int = 16,
     learning_rate: float = 0.001,
     patience: int = 20,
-    output_dir: str = "training/output"
+    output_dir: str = "training/output",
+    resume: bool = False
 ):
     """
     训练指定模型并生成可视化结果
@@ -382,22 +383,51 @@ def train_model(
         optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6
     )
 
-    # 训练历史记录
-    history = {
-        "train_loss": [],
-        "train_acc": [],
-        "val_loss": [],
-        "val_acc": [],
-        "lr": [],
-    }
+    # 断点续训：加载 checkpoint 或 best 模型
+    start_epoch = 0
+    checkpoint_path = os.path.join(model_output_dir, f"{model_name}_checkpoint.pth")
+    best_model_path = os.path.join(model_output_dir, f"{model_name}_best.pth")
 
-    best_val_loss = float("inf")
-    best_val_acc = 0.0
-    no_improve_count = 0
+    if resume and os.path.exists(checkpoint_path):
+        # 优先从 checkpoint 恢复（完整状态）
+        print(f"  从 checkpoint 恢复: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"] + 1
+        best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        best_val_acc = checkpoint.get("best_val_acc", 0.0)
+        no_improve_count = checkpoint.get("no_improve_count", 0)
+        history = checkpoint.get("history", {
+            "train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "lr": []
+        })
+        print(f"  恢复到 Epoch {start_epoch}, 最佳 Val Acc: {best_val_acc:.4f}")
+    elif resume and os.path.exists(best_model_path):
+        # 没有 checkpoint，从 best 模型恢复权重（optimizer 重置）
+        print(f"  从最佳模型恢复权重: {best_model_path}")
+        model.load_state_dict(torch.load(best_model_path, weights_only=False))
+        print(f"  [注意] 无 checkpoint，epoch 从 0 开始，optimizer 已重置")
+    elif resume:
+        print(f"  [警告] 未找到 checkpoint 或 best 模型，从头开始训练")
+
+    # 训练历史记录
+    if start_epoch == 0:
+        history = {
+            "train_loss": [],
+            "train_acc": [],
+            "val_loss": [],
+            "val_acc": [],
+            "lr": [],
+        }
+
+    best_val_loss = best_val_loss if start_epoch > 0 else float("inf")
+    best_val_acc = best_val_acc if start_epoch > 0 else 0.0
+    no_improve_count = no_improve_count if start_epoch > 0 else 0
     best_preds = None
     best_labels = None
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         # ---- 训练阶段 ----
         model.train()
         train_loss = 0
@@ -418,6 +448,8 @@ def train_model(
             _, predicted = torch.max(output, dim=1)
             train_correct += (predicted == batch.y.squeeze(-1)).sum().item()
             train_total += batch.num_graphs
+            # 释放当前 batch 的显存/内存
+            del batch, output, loss, predicted
 
         avg_train_loss = train_loss / len(dataset)
         train_acc = train_correct / train_total
@@ -453,8 +485,9 @@ def train_model(
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_val_acc = val_acc
-            best_preds = val_preds
-            best_labels = val_labels
+            # 转为 numpy 释放 GPU/MPS 张量内存
+            best_preds = [p.cpu().numpy() if torch.is_tensor(p) else p for p in val_preds]
+            best_labels = [l.cpu().numpy() if torch.is_tensor(l) else l for l in val_labels]
             no_improve_count = 0
             model_path = os.path.join(model_output_dir, f"{model_name}_best.pth")
             torch.save(model.state_dict(), model_path)
@@ -463,11 +496,26 @@ def train_model(
             )
         else:
             no_improve_count += 1
+            # 释放非最佳轮次的预测张量
+            del val_preds, val_labels
 
         # 早停
         if no_improve_count >= patience:
             print(f"\n早停触发: 验证集 loss 连续 {patience} 轮未改善。")
             break
+
+        # 每轮保存 checkpoint（断点续训用）
+        if True:
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "best_val_loss": best_val_loss,
+                "best_val_acc": best_val_acc,
+                "no_improve_count": no_improve_count,
+                "history": history,
+            }, checkpoint_path)
 
     # ---- 训练结束 ----
     train_time = time.time() - train_start_time
@@ -698,6 +746,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-dir", type=str, default="training/output", help="输出目录"
     )
+    parser.add_argument(
+        "--resume", action="store_true", help="从 checkpoint 断点续训"
+    )
     args = parser.parse_args()
 
     # 确定数据集和类别
@@ -815,6 +866,7 @@ if __name__ == "__main__":
         "learning_rate": args.lr,
         "patience": args.patience,
         "output_dir": args.output_dir,
+        "resume": args.resume,
     }
 
     if not dataset:

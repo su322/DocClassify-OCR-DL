@@ -102,7 +102,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | `compare_results.py` | 汇总对比结果 | `python training/scripts/compare_results.py` |
 | `test_train.py` | 训练流程快速验证（每类2张，2轮） | `python training/scripts/test_train.py` |
 
-常用参数：`--epochs`（训练轮数）、`--batch-size`（批大小）、`--lr`（学习率）、`--patience`（早停耐心值）、`--model gcn|gat|both`（仅 GNN）
+常用参数：`--epochs`（训练轮数）、`--batch-size`（批大小）、`--lr`（学习率）、`--patience`（早停耐心值）、`--model gcn|gat|both`（仅 GNN）、`--resume`（断点续训）
 
 ### 7.2 训练配置
 | 参数 | CNN | GCN/GAT |
@@ -115,7 +115,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | 正则化 | Dropout + weight_decay | Dropout(0.5) + BatchNorm + weight_decay |
 | DataLoader | num_workers=4, pin_memory=True | pin_memory=True, drop_last=True |
 | 设备选择 | CUDA > MPS > CPU 自动选择 | CUDA > MPS > CPU 自动选择 |
-| 断点续跑 | 不支持 | 支持（pickle 缓存，每 100 张自动保存） |
+| 断点续跑 | 不支持 | 支持（每轮自动保存 checkpoint，`--resume` 恢复） |
 
 ### 7.3 输出结果
 训练完成后自动生成：

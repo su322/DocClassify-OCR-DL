@@ -110,7 +110,8 @@ def train_cnn(
     batch_size: int = 32,
     learning_rate: float = 0.001,
     patience: int = 10,
-    output_dir: str = "training/output/cnn"
+    output_dir: str = "training/output/cnn",
+    resume: bool = False
 ):
     """训练 CNN 模型"""
     if torch.cuda.is_available():
@@ -208,7 +209,31 @@ def train_cnn(
     best_preds = None
     best_labels = None
 
-    for epoch in range(epochs):
+    # 断点续训：加载 checkpoint 或 best 模型
+    start_epoch = 0
+    checkpoint_path = os.path.join(output_dir, "cnn_checkpoint.pth")
+    best_model_path = os.path.join(output_dir, "cnn_best.pth")
+
+    if resume and os.path.exists(checkpoint_path):
+        print(f"  从 checkpoint 恢复: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, weights_only=False, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"] + 1
+        best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        best_val_acc = checkpoint.get("best_val_acc", 0.0)
+        no_improve_count = checkpoint.get("no_improve_count", 0)
+        history = checkpoint.get("history", history)
+        print(f"  恢复到 Epoch {start_epoch}, 最佳 Val Acc: {best_val_acc:.4f}")
+    elif resume and os.path.exists(best_model_path):
+        print(f"  从最佳模型恢复权重: {best_model_path}")
+        model.load_state_dict(torch.load(best_model_path, weights_only=False, map_location=device))
+        print(f"  [注意] 无 checkpoint，epoch 从 0 开始，optimizer 已重置")
+    elif resume:
+        print(f"  [警告] 未找到 checkpoint 或 best 模型，从头开始训练")
+
+    for epoch in range(start_epoch, epochs):
         model.train()
         train_loss, train_correct, train_total = 0, 0, 0
         for images, labels in train_loader:
@@ -260,6 +285,18 @@ def train_cnn(
         if no_improve_count >= patience:
             print(f"\n早停触发: 连续 {patience} 轮未改善。")
             break
+
+        # 每轮保存 checkpoint（断点续训用）
+        torch.save({
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "best_val_loss": best_val_loss,
+            "best_val_acc": best_val_acc,
+            "no_improve_count": no_improve_count,
+            "history": history,
+        }, checkpoint_path)
 
     train_time = time.time() - train_start_time
 
@@ -440,6 +477,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--output-dir", type=str, default="training/output")
+    parser.add_argument("--resume", action="store_true", help="从 checkpoint 断点续训")
     args = parser.parse_args()
 
     random.seed(42)
@@ -483,4 +521,5 @@ if __name__ == "__main__":
         learning_rate=args.lr,
         patience=args.patience,
         output_dir=os.path.join(args.output_dir, "cnn"),
+        resume=args.resume,
     )

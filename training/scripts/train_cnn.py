@@ -436,7 +436,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", type=str, default=None)
     parser.add_argument("--test-dir", type=str, default=None, help="测试集目录")
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--output-dir", type=str, default="training/output")

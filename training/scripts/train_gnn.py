@@ -80,7 +80,7 @@ class GraphDataset(Dataset):
     内存占用从 ~21GB 降到 ~500MB
     """
 
-    def __init__(self, cache_dir: str):
+    def __init__(self, cache_dir: str, shard_cache_size: int = 3):
         super().__init__(root=cache_dir)
         self.cache_dir = cache_dir
         self.shard_paths = sorted([
@@ -99,13 +99,31 @@ class GraphDataset(Dataset):
         for shard_idx, length in enumerate(self.shard_lengths):
             for local_idx in range(length):
                 self._index_map.append((shard_idx, local_idx))
+        # LRU 分片缓存：保留最近访问的几个分片，避免重复加载
+        from collections import OrderedDict
+        self._shard_cache = OrderedDict()  # shard_idx -> shard_data
+        self._shard_cache_size = shard_cache_size
+
+    def _load_shard(self, shard_idx: int):
+        """加载分片，优先从缓存读取"""
+        if shard_idx in self._shard_cache:
+            # 移到末尾（最近使用）
+            self._shard_cache.move_to_end(shard_idx)
+            return self._shard_cache[shard_idx]
+        # 缓存未命中，从磁盘加载
+        shard = torch.load(self.shard_paths[shard_idx], weights_only=False)
+        self._shard_cache[shard_idx] = shard
+        # 超出缓存大小，淘汰最久未使用的
+        while len(self._shard_cache) > self._shard_cache_size:
+            self._shard_cache.popitem(last=False)
+        return shard
 
     def len(self):
         return self.total
 
     def get(self, idx):
         shard_idx, local_idx = self._index_map[idx]
-        shard = torch.load(self.shard_paths[shard_idx], weights_only=False)
+        shard = self._load_shard(shard_idx)
         return shard[local_idx]
 
 
@@ -674,7 +692,7 @@ if __name__ == "__main__":
         help="自定义训练数据目录（与 --dataset 二选一）",
     )
     parser.add_argument("--epochs", type=int, default=200, help="最大训练轮数")
-    parser.add_argument("--batch-size", type=int, default=256, help="批大小")
+    parser.add_argument("--batch-size", type=int, default=128, help="批大小")
     parser.add_argument("--lr", type=float, default=0.001, help="初始学习率")
     parser.add_argument("--patience", type=int, default=20, help="早停耐心值")
     parser.add_argument(

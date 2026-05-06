@@ -108,7 +108,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | 参数 | CNN | GCN/GAT |
 |---|---|---|
 | Epochs | 50 | 200 |
-| Batch Size | 256 | 256 |
+| Batch Size | 128 | 128 |
 | Learning Rate | 0.001 | 0.001 |
 | 早停 Patience | 10 | 20 |
 | 学习率调度 | ReduceLROnPlateau | ReduceLROnPlateau |

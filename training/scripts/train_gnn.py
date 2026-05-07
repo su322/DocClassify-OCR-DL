@@ -80,7 +80,7 @@ class GraphDataset(Dataset):
     内存占用从 ~21GB 降到 ~500MB
     """
 
-    def __init__(self, cache_dir: str, shard_cache_size: int = 3):
+    def __init__(self, cache_dir: str, shard_cache_size: int = 5, in_memory: bool = False):
         super().__init__(root=cache_dir)
         self.cache_dir = cache_dir
         self.shard_paths = sorted([
@@ -93,35 +93,49 @@ class GraphDataset(Dataset):
         for p in self.shard_paths:
             shard = torch.load(p, weights_only=False)
             self.shard_lengths.append(len(shard))
+            del shard
+            import gc
+            gc.collect()
         self.total = sum(self.shard_lengths)
         # 构建索引映射: 全局索引 -> (分片索引, 分片内索引)
         self._index_map = []
         for shard_idx, length in enumerate(self.shard_lengths):
             for local_idx in range(length):
                 self._index_map.append((shard_idx, local_idx))
-        # LRU 分片缓存：保留最近访问的几个分片，避免重复加载
-        from collections import OrderedDict
-        self._shard_cache = OrderedDict()  # shard_idx -> shard_data
-        self._shard_cache_size = shard_cache_size
+
+        if in_memory:
+            # 全量加载到内存（服务器大内存场景）
+            print(f"  全量加载 {len(self.shard_paths)} 个分片到内存...")
+            self._all_data = []
+            for p in self.shard_paths:
+                self._all_data.extend(torch.load(p, weights_only=False))
+            print(f"  全量加载完成: {self.total} 个样本")
+        else:
+            # LRU 分片缓存
+            from collections import OrderedDict
+            self._shard_cache = OrderedDict()
+            self._shard_cache_size = shard_cache_size
+            self._all_data = None
 
     def _load_shard(self, shard_idx: int):
         """加载分片，优先从缓存读取"""
         if shard_idx in self._shard_cache:
-            # 移到末尾（最近使用）
             self._shard_cache.move_to_end(shard_idx)
             return self._shard_cache[shard_idx]
-        # 缓存未命中，从磁盘加载
         shard = torch.load(self.shard_paths[shard_idx], weights_only=False)
         self._shard_cache[shard_idx] = shard
-        # 超出缓存大小，淘汰最久未使用的
         while len(self._shard_cache) > self._shard_cache_size:
             self._shard_cache.popitem(last=False)
+            import gc
+            gc.collect()
         return shard
 
     def len(self):
         return self.total
 
     def get(self, idx):
+        if self._all_data is not None:
+            return self._all_data[idx]
         shard_idx, local_idx = self._index_map[idx]
         shard = self._load_shard(shard_idx)
         return shard[local_idx]
@@ -749,6 +763,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--resume", action="store_true", help="从 checkpoint 断点续训"
     )
+    parser.add_argument(
+        "--in-memory", action="store_true", help="全量加载到内存（服务器大内存场景，速度更快）"
+    )
     args = parser.parse_args()
 
     # 确定数据集和类别
@@ -829,7 +846,7 @@ if __name__ == "__main__":
         shard_files = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
 
     if shard_files:
-        dataset = GraphDataset(default_cache_dir)
+        dataset = GraphDataset(default_cache_dir, in_memory=args.in_memory)
         print(f"  使用按需加载模式: {len(dataset)} 个训练样本（内存占用低）")
     else:
         print(f"\n共准备 {len(dataset)} 个训练样本")
@@ -850,7 +867,7 @@ if __name__ == "__main__":
 
         if val_shard_files:
             print(f"\n  检测到验证集分片缓存 ({len(val_shard_files)} 个分片)")
-            val_dataset = GraphDataset(val_cache_dir)
+            val_dataset = GraphDataset(val_cache_dir, in_memory=args.in_memory)
             print(f"  共 {len(val_dataset)} 个验证样本（按需加载）")
         else:
             print("\n开始准备验证数据...")

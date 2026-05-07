@@ -374,8 +374,20 @@ def train_model(
     else:
         print(f"训练集: {len(dataset)} 样本, 验证集: 无\n")
 
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=True) if val_dataset else None
+    # 根据设备自动选择 num_workers（GPU 用多 worker，MPS/Mac 用 0）
+    if torch.cuda.is_available():
+        num_workers = 8  # GPU 场景用多进程加速数据加载
+    else:
+        num_workers = 0  # MPS/Mac 用主进程避免 spawn 开销
+
+    train_loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, drop_last=True,
+        pin_memory=True, num_workers=num_workers, persistent_workers=(num_workers > 0)
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, drop_last=False,
+        pin_memory=True, num_workers=num_workers, persistent_workers=(num_workers > 0)
+    ) if val_dataset else None
 
     # 确定模型参数
     sample = dataset[0]

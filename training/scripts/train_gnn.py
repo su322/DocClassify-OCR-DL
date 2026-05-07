@@ -285,17 +285,8 @@ def prepare_train_data(
     """
     import pickle
 
-    # Step 1: OCR 缓存（所有边策略共享，按 train/val 分开）
-    if ocr_cache_dir is None:
-        split_name = os.path.basename(os.path.normpath(data_dir))  # "train" 或 "val"
-        ocr_cache_dir = os.path.join(os.path.dirname(data_dir), f"cache_base_{split_name}")
-    ocr_data = _ensure_ocr_cache(data_dir, classes, ocr_cache_dir, save_interval)
-
-    if not ocr_data:
-        print("错误: OCR 缓存为空，没有可处理的文件。")
-        return []
-
-    # Step 2: 策略级缓存（按 edge_strategy 建边）
+    # Step 1: 策略级缓存（按 edge_strategy 建边）
+    # 先检查策略缓存，命中则跳过 OCR 缓存构建（兼容旧版缓存）
     if cache_dir is None:
         suffix = f"cache_{edge_strategy}" if edge_strategy != "spatial" else "cache"
         cache_dir = os.path.join(os.path.dirname(data_dir), suffix)
@@ -311,6 +302,16 @@ def prepare_train_data(
             return dataset
         except Exception as e:
             print(f"  策略缓存加载失败: {e}，重新构建")
+
+    # Step 2: OCR 缓存（所有边策略共享，按 train/val 分开）
+    if ocr_cache_dir is None:
+        split_name = os.path.basename(os.path.normpath(data_dir))  # "train" 或 "val"
+        ocr_cache_dir = os.path.join(os.path.dirname(data_dir), f"cache_base_{split_name}")
+    ocr_data = _ensure_ocr_cache(data_dir, classes, ocr_cache_dir, save_interval)
+
+    if not ocr_data:
+        print("错误: OCR 缓存为空，没有可处理的文件。")
+        return []
 
     # Step 3: 从 OCR 缓存建边
     data_type = "验证集" if "val" in data_dir else "训练集"

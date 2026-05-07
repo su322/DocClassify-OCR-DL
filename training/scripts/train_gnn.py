@@ -865,6 +865,35 @@ if __name__ == "__main__":
             if f.startswith("shard_") and f.endswith(".pt")
         ] if os.path.isdir(val_cache_dir) else []
 
+        # 检查是否需要生成分片（pkl 比分片新或没有分片）
+        val_pkl_file = os.path.join(val_cache_dir, "processed_data.pkl")
+        need_val_shard = False
+        if not val_shard_files:
+            need_val_shard = True
+        elif os.path.exists(val_pkl_file):
+            pkl_mtime = os.path.getmtime(val_pkl_file)
+            shard_mtime = max(os.path.getmtime(os.path.join(val_cache_dir, f)) for f in val_shard_files)
+            if pkl_mtime > shard_mtime:
+                need_val_shard = True
+                print("  检测到验证集 pkl 已更新，重新生成分片...")
+
+        if need_val_shard and os.path.exists(val_pkl_file):
+            import pickle as _pkl
+            print("  正在生成验证集分片缓存...")
+            with open(val_pkl_file, "rb") as f:
+                cached = _pkl.load(f)
+            all_data = cached.get("dataset", [])
+            SHARD_SIZE = 1000
+            # 删除旧分片
+            for old_shard in val_shard_files:
+                os.remove(os.path.join(val_cache_dir, old_shard))
+            for i in range(0, len(all_data), SHARD_SIZE):
+                shard = all_data[i:i + SHARD_SIZE]
+                shard_path = os.path.join(val_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
+                torch.save(shard, shard_path)
+            print(f"  分片完成: {len(all_data)} 个样本 → {(len(all_data) + SHARD_SIZE - 1) // SHARD_SIZE} 个分片")
+            val_shard_files = [f for f in os.listdir(val_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+
         if val_shard_files:
             print(f"\n  检测到验证集分片缓存 ({len(val_shard_files)} 个分片)")
             val_dataset = GraphDataset(val_cache_dir, in_memory=args.in_memory)

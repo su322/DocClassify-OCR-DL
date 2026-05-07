@@ -589,7 +589,7 @@ def train_model(
     with open(result_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    return result
+    return history
 
 
 # ============================================================
@@ -679,6 +679,40 @@ def _generate_plots(
                 f.write(f"{'='*60}\n\n")
                 f.write(report)
             print(f"分类报告已保存: {report_path}")
+
+            # ---- 5. Markdown 数据报告（供 LLM 分析）----
+            md_path = os.path.join(output_dir, f"{model_name}_report.md")
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# {model_name.upper()} 训练报告\n\n")
+                # 训练曲线数据
+                f.write("## 训练曲线数据\n\n")
+                f.write("| Epoch | Train Loss | Val Loss | Train Acc | Val Acc | LR |\n")
+                f.write("|-------|------------|----------|-----------|---------|-----|\n")
+                for i in range(len(history["train_loss"])):
+                    f.write(f"| {i+1} | {history['train_loss'][i]:.4f} | "
+                            f"{history['val_loss'][i]:.4f} | "
+                            f"{history['train_acc'][i]:.4f} | "
+                            f"{history['val_acc'][i]:.4f} | "
+                            f"{history['lr'][i]:.6f} |\n")
+                f.write("\n")
+                # 混淆矩阵数据
+                f.write("## 混淆矩阵数据\n\n")
+                f.write("| Actual \\ Predicted | " + " | ".join(class_names) + " |\n")
+                f.write("|" + "---|" * (len(class_names) + 1) + "\n")
+                for i, actual in enumerate(class_names):
+                    row = [actual] + [str(cm[i][j]) for j in range(len(class_names))]
+                    f.write("| " + " | ".join(row) + " |\n")
+                f.write("\n")
+                # 每类准确率
+                f.write("## 每类准确率\n\n")
+                f.write("| 类别 | 正确数 | 总数 | 准确率 |\n")
+                f.write("|------|--------|------|--------|\n")
+                for i, name in enumerate(class_names):
+                    correct = cm[i][i]
+                    total = cm[i].sum()
+                    acc = correct / total if total > 0 else 0
+                    f.write(f"| {name} | {correct} | {total} | {acc:.2%} |\n")
+            print(f"Markdown 报告已保存: {md_path}")
 
     except ImportError:
         print("\n[警告] 缺少 matplotlib/sklearn/seaborn，跳过可视化生成。")

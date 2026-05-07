@@ -118,19 +118,19 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 常用参数：`--epochs`（训练轮数）、`--batch-size`（批大小）、`--lr`（学习率）、`--patience`（早停耐心值）、`--model gcn|gat|both`（仅 GNN）、`--resume`（断点续训）、`--in-memory`（全量加载到内存，服务器大内存场景）
 
 ### 7.2 训练配置
-| 参数 | CNN | GCN/GAT/GIN |
-|---|---|---|
-| Epochs | 50 | 200 |
-| Batch Size | 128 | 128 |
-| Learning Rate | 0.001 | 0.001 |
-| 早停 Patience | 10 | 20 |
-| 学习率调度 | ReduceLROnPlateau | ReduceLROnPlateau |
-| 正则化 | Dropout + weight_decay | Dropout(0.5) + BatchNorm + weight_decay |
-| DataLoader | num_workers=4, pin_memory=True | pin_memory=True, drop_last=True |
-| 设备选择 | CUDA > MPS > CPU 自动选择 | CUDA > MPS > CPU 自动选择 |
-| 断点续跑 | 不支持 | 支持（每轮自动保存 checkpoint，`--resume` 恢复） |
-| 数据加载 | 全量加载 | 分片按需加载（LRU 缓存），`--in-memory` 可全量加载 |
-| 图边策略 | — | spatial / reading_order / same_row_col / hybrid |
+| 参数 | CNN                            | GCN/GAT/GIN                                     |
+|---|--------------------------------|-------------------------------------------------|
+| Epochs | 50                             | 200                                             |
+| Batch Size | 1024                           | 1024                                            |
+| Learning Rate | 0.001                          | 0.001                                           |
+| 早停 Patience | 10                             | 20                                              |
+| 学习率调度 | ReduceLROnPlateau              | ReduceLROnPlateau                               |
+| 正则化 | Dropout + weight_decay         | Dropout(0.5) + BatchNorm + weight_decay         |
+| DataLoader | num_workers=4, pin_memory=True | pin_memory=True, drop_last=True                 |
+| 设备选择 | CUDA > MPS > CPU 自动选择          | CUDA > MPS > CPU 自动选择                           |
+| 断点续跑 | 不支持                            | 支持（每轮自动保存 checkpoint，`--resume` 恢复）             |
+| 数据加载 | 全量加载                           | 分片按需加载（LRU 缓存），`--in-memory` 可全量加载              |
+| 图边策略 | —                              | spatial / reading_order / same_row_col / hybrid |
 
 ### 7.3 输出结果
 训练完成后自动生成：
@@ -188,10 +188,10 @@ training/
 ## 10. 部署注意事项
 
 ### 10.1 AutoDL / 国内服务器
-AutoDL 等国内 GPU 服务器无法直接访问 HuggingFace，需要设置镜像源：
+AutoDL 等国内 GPU 服务器可能无法直接访问 HuggingFace，需要设置镜像源：
 ```bash
 export HF_ENDPOINT=https://hf-mirror.com
-python training/scripts/train_gnn.py --dataset rvl_cdip --model both
+python training/scripts/train_gnn.py --dataset rvl_cdip --batch-size 1024 --in-memory --model all --edge-strategy all
 ```
 
 ### 10.2 macOS Apple Silicon

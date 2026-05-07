@@ -106,18 +106,157 @@ class ClassificationService:
 
         return spatial_features
 
+    def _build_spatial_edges(self, boxes, doc_width, doc_height):
+        """边策略1: 原始空间距离阈值法，距离 < 对角线 15% 的连接"""
+        edges = []
+        if len(boxes) < 2:
+            return edges
+
+        if doc_width and doc_height and doc_width > 0 and doc_height > 0:
+            diagonal = np.sqrt(doc_width**2 + doc_height**2)
+        else:
+            all_x = [b[0] for b in boxes] + [b[2] for b in boxes]
+            all_y = [b[1] for b in boxes] + [b[3] for b in boxes]
+            diagonal = np.sqrt(
+                (max(all_x) - min(all_x)) ** 2 + (max(all_y) - min(all_y)) ** 2
+            )
+
+        distance_threshold = diagonal * 0.15
+
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                distance = self._calculate_distance(boxes[i], boxes[j])
+                if distance < distance_threshold:
+                    edges.append([i, j])
+                    edges.append([j, i])
+
+        return edges
+
+    def _build_reading_order_edges(self, boxes):
+        """
+        边策略2: 阅读顺序连接
+
+        模拟文档的阅读顺序（从上到下、从左到右）:
+        1. 按 y 坐标将区域分组到同一"行"
+        2. 行内按 x 坐标从左到右排序
+        3. 连接阅读顺序上相邻的区域
+        """
+        if len(boxes) < 2:
+            return []
+
+        # 估算行高（用区域高度的中位数的一半作为行内 y 容差）
+        heights = [box[3] - box[1] for box in boxes]
+        median_height = float(np.median(heights)) if heights else 1.0
+        row_threshold = max(median_height * 0.5, 1.0)
+
+        # 为每个区域计算 (row_key, x_center, index)
+        # row_key = floor(center_y / row_threshold)，将相近 y 的区域归入同一行
+        indexed = []
+        for i, box in enumerate(boxes):
+            cx = (box[0] + box[2]) / 2.0
+            cy = (box[1] + box[3]) / 2.0
+            row_key = int(cy / row_threshold)
+            indexed.append((row_key, cx, i))
+
+        # 按 (行, 列) 排序 = 阅读顺序
+        indexed.sort(key=lambda x: (x[0], x[1]))
+
+        # 连接排序后相邻的区域
+        edges = []
+        sorted_indices = [item[2] for item in indexed]
+        for k in range(len(sorted_indices) - 1):
+            i, j = sorted_indices[k], sorted_indices[k + 1]
+            edges.append([i, j])
+            edges.append([j, i])
+
+        return edges
+
+    def _build_same_row_col_edges(self, boxes):
+        """
+        边策略3: 同行/同列连接
+
+        连接在同一行（y 轴重叠大）或同一列（x 轴重叠大）的区域对，
+        用于捕捉文档中的表格、多栏等布局结构。
+        """
+        if len(boxes) < 2:
+            return []
+
+        edges = []
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                box_i, box_j = boxes[i], boxes[j]
+
+                # 计算 y 轴重叠比例（判断是否同行）
+                y_overlap = min(box_i[3], box_j[3]) - max(box_i[1], box_j[1])
+                if y_overlap > 0:
+                    y_i_height = box_i[3] - box_i[1]
+                    y_j_height = box_j[3] - box_j[1]
+                    min_h = min(y_i_height, y_j_height)
+                    y_iou = y_overlap / min_h if min_h > 0 else 0
+                else:
+                    y_iou = 0
+
+                # 计算 x 轴重叠比例（判断是否同列）
+                x_overlap = min(box_i[2], box_j[2]) - max(box_i[0], box_j[0])
+                if x_overlap > 0:
+                    x_i_width = box_i[2] - box_i[0]
+                    x_j_width = box_j[2] - box_j[0]
+                    min_w = min(x_i_width, x_j_width)
+                    x_iou = x_overlap / min_w if min_w > 0 else 0
+                else:
+                    x_iou = 0
+
+                if y_iou > 0.3 or x_iou > 0.3:
+                    edges.append([i, j])
+                    edges.append([j, i])
+
+        return edges
+
+    def _build_hybrid_edges(self, boxes, doc_width, doc_height):
+        """
+        边策略4: 混合策略
+
+        取 spatial + reading_order + same_row_col 三种边的并集，
+        去重后返回。
+        """
+        all = []
+        all.extend(self._build_spatial_edges(boxes, doc_width, doc_height))
+        all.extend(self._build_reading_order_edges(boxes))
+        all.extend(self._build_same_row_col_edges(boxes))
+
+        # 去重（以 (min, max) 为 key）
+        edge_set = set()
+        for u, v in all:
+            if u < v:
+                edge_set.add((u, v))
+
+        edges = []
+        for u, v in edge_set:
+            edges.append([u, v])
+            edges.append([v, u])
+
+        return edges
+
     def _build_graph(
         self,
         regions: List[OCRRegion],
         tables: Optional[List[TableRegion]] = None,
         doc_width: Optional[float] = None,
         doc_height: Optional[float] = None,
+        edge_strategy: str = "spatial",
     ) -> Dict[str, Any]:
         """
         构建图结构
 
         节点特征 = 文本嵌入(384) + 空间特征(4) + 版面类型 one-hot(10) = 398 维
-        边 = 空间距离小于阈值的节点对
+        边策略由 edge_strategy 参数控制
+
+        Args:
+            edge_strategy: 边构建策略
+                - "spatial": 原始空间距离阈值法
+                - "reading_order": 阅读顺序连接
+                - "same_row_col": 同行/同列连接
+                - "hybrid": 上述三种的并集
         """
         doc_width = float(doc_width) if doc_width else 0
         doc_height = float(doc_height) if doc_height else 0
@@ -163,31 +302,29 @@ class ClassificationService:
                 node_features.append(node_feature)
                 all_boxes.append(box)
 
-        # 构建边：使用相对距离阈值
-        edges = []
-        if len(all_boxes) > 1:
-            if doc_width and doc_height and doc_width > 0 and doc_height > 0:
-                diagonal = np.sqrt(doc_width**2 + doc_height**2)
-            else:
-                all_x = [b[0] for b in all_boxes] + [b[2] for b in all_boxes]
-                all_y = [b[1] for b in all_boxes] + [b[3] for b in all_boxes]
-                diagonal = np.sqrt(
-                    (max(all_x) - min(all_x)) ** 2 + (max(all_y) - min(all_y)) ** 2
-                )
+        # 根据策略构建边
+        strategy_map = {
+            "spatial": self._build_spatial_edges,
+            "reading_order": self._build_reading_order_edges,
+            "same_row_col": self._build_same_row_col_edges,
+            "hybrid": self._build_hybrid_edges,
+        }
+        build_fn = strategy_map.get(edge_strategy)
+        if build_fn is None:
+            raise ValueError(
+                f"未知边策略: {edge_strategy}，可选: {list(strategy_map.keys())}"
+            )
 
-            distance_threshold = diagonal * 0.15
-
-            for i in range(len(all_boxes)):
-                for j in range(i + 1, len(all_boxes)):
-                    distance = self._calculate_distance(all_boxes[i], all_boxes[j])
-                    if distance < distance_threshold:
-                        edges.append([i, j])
-                        edges.append([j, i])
+        if edge_strategy in ("spatial", "hybrid"):
+            edges_list = build_fn(all_boxes, doc_width, doc_height)
+        else:
+            edges_list = build_fn(all_boxes)
 
         return {
             "node_features": np.array(node_features),
-            "edges": np.array(edges).T if edges else np.array([[], []]),
+            "edges": np.array(edges_list).T if edges_list else np.array([[], []]),
             "num_nodes": len(node_features),
+            "edge_strategy": edge_strategy,
         }
 
     def _calculate_distance(self, box1, box2) -> float:

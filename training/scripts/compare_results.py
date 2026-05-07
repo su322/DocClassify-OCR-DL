@@ -114,6 +114,7 @@ def main():
         "CNN (ResNet18)": os.path.join(output_dir, "cnn"),
         "GCN": os.path.join(output_dir, "gcn"),
         "GAT": os.path.join(output_dir, "gat"),
+        "GIN": os.path.join(output_dir, "gin"),
     }
 
     results = {}

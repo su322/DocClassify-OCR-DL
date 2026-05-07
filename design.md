@@ -21,7 +21,7 @@ graph TD
 | **API Web 框架** | FastAPI | ✅ 已确认 | 支持异步，自动生成接口文档 |
 | **OCR / 版面分析** | PaddleOCR (PP-StructureV3) | ✅ 已确认 | 处理中英文效果好，自带版面分析能力 |
 | **文本嵌入** | SentenceTransformer (paraphrase-multilingual-MiniLM-L12-v2) | ✅ 已确认 | 多语言支持，384维输出，将 OCR 文本转为向量 |
-| **分类模型** | GCN / GAT (图神经网络) + CNN (ResNet18) Baseline | ✅ 已确认 | GNN 结合文本语义与空间布局，CNN 作为对比基线 |
+| **分类模型** | GCN / GAT / GIN (图神经网络) + CNN (ResNet18) Baseline | ✅ 已确认 | GNN 结合文本语义与空间布局，CNN 作为对比基线 |
 | **数据集** | RVL-CDIP (16类文档图像) | ✅ 已确认 | 文档分类领域标准 benchmark，47996张图像 |
 | **数据库** | SQLite | ✅ 已确认 | 轻量级本地数据库，无需额外配置 |
 | **前端展示** | HTML/CSS/JavaScript | ✅ 已确认 | 简单前端页面，提供上传、分类展示和历史记录 |
@@ -38,7 +38,7 @@ graph TD
   *CNN 只能处理像素网格，无法显式建模文档元素之间的结构关系。GNN 将每个文本/表格区域视为节点，通过空间距离构建边，能捕捉文档的布局结构信息。此外，GNN 的图构建策略（节点设计、边构建规则、特征融合方式）可以作为论文的创新点。*
 
 - [x] **对比实验如何设计？**
-  *三个模型对比：(1) CNN (ResNet18) — 传统像素级分类 baseline；(2) GCN — 基础图神经网络，邻居平均聚合；(3) GAT — 图注意力网络，注意力加权聚合。三个模型使用相同数据集（RVL-CDIP）和相同的数据划分（80/10/10），确保对比公平。*
+  *四个模型对比：(1) CNN (ResNet18) — 传统像素级分类 baseline；(2) GCN — 基础图神经网络，邻居平均聚合；(3) GAT — 图注意力网络，注意力加权聚合；(4) GIN — 图同构网络，MLP聚合。此外，还设计了图构建策略消融实验，比较 spatial / reading_order / hybrid 三种边策略对分类性能的影响。所有实验使用相同数据集（RVL-CDIP）和相同的数据划分（80/10/10），确保对比公平。*
 
 - [x] **异步任务架构：手写轻量级脚本 vs Celery？**
   *采用同步处理，简化架构，适合个人毕设开发和演示。*
@@ -57,7 +57,11 @@ graph TD
 3. **图结构构建**:
    - **节点**: 每个文本/表格区域为一个节点
    - **节点特征**: 文本嵌入(384维) + 空间特征(4维) + 版面类型(10维) = 398维
-   - **边**: 空间距离小于文档对角线 15% 的节点对之间建立无向边
+   - **边**: 支持多种构建策略（详见消融实验）
+     - `spatial`: 空间距离小于文档对角线 15% 的节点对建立无向边（默认）
+     - `reading_order`: 按阅读顺序（从上到下、从左到右）连接相邻区域
+     - `same_row_col`: 同行或同列的区域全连接（捕捉表格/多栏结构）
+     - `hybrid`: 上述三种策略的并集
    - **空间归一化**: 使用文档宽高归一化坐标，适应不同分辨率
 4. **GNN 推理**: GCN/GAT 在图上进行消息传递，输出文档类别。
 
@@ -79,7 +83,16 @@ Input(398) → GATConv(128, heads=4) → BatchNorm → ReLU → Dropout(0.5)
            → GlobalMeanPool → Linear(16)
 ```
 
-### 5.3 DocumentCNN (ResNet18 Baseline)
+### 5.3 DocumentGIN (GIN)
+```
+Input(398) → GINConv(MLP, eps) → BatchNorm → ReLU → Dropout(0.5)
+           → GINConv(MLP, eps) → BatchNorm → ReLU → Dropout(0.5)
+           → GINConv(MLP, eps) → BatchNorm → ReLU
+           → GlobalMeanPool → Linear(16)
+```
+GIN (Graph Isomorphism Network) 使用 MLP 替代 GCN 的简单线性变换，理论上表达能力最强。
+
+### 5.4 DocumentCNN (ResNet18 Baseline)
 ```
 Input(3×224×224) → ResNet18(预训练) → Linear(16)
 ```
@@ -105,7 +118,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 常用参数：`--epochs`（训练轮数）、`--batch-size`（批大小）、`--lr`（学习率）、`--patience`（早停耐心值）、`--model gcn|gat|both`（仅 GNN）、`--resume`（断点续训）、`--in-memory`（全量加载到内存，服务器大内存场景）
 
 ### 7.2 训练配置
-| 参数 | CNN | GCN/GAT |
+| 参数 | CNN | GCN/GAT/GIN |
 |---|---|---|
 | Epochs | 50 | 200 |
 | Batch Size | 128 | 128 |
@@ -117,6 +130,7 @@ Input(3×224×224) → ResNet18(预训练) → Linear(16)
 | 设备选择 | CUDA > MPS > CPU 自动选择 | CUDA > MPS > CPU 自动选择 |
 | 断点续跑 | 不支持 | 支持（每轮自动保存 checkpoint，`--resume` 恢复） |
 | 数据加载 | 全量加载 | 分片按需加载（LRU 缓存），`--in-memory` 可全量加载 |
+| 图边策略 | — | spatial / reading_order / same_row_col / hybrid |
 
 ### 7.3 输出结果
 训练完成后自动生成：

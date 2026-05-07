@@ -30,6 +30,7 @@ sys.path.append(
 
 from backend.models.deep_learning.gnn_model import DocumentGNN
 from backend.models.deep_learning.gat_model import DocumentGAT
+from backend.models.deep_learning.gin_model import DocumentGIN
 from backend.services.classification_service import ClassificationService
 from backend.services.ocr_service import ocr_service
 from backend.core.config import settings
@@ -56,7 +57,7 @@ def get_model(
     根据名称创建模型
 
     Args:
-        model_name: "gcn" 或 "gat"
+        model_name: "gcn" / "gat" / "gin"
         in_channels: 输入特征维度
         hidden_channels: 隐藏层维度
         out_channels: 输出类别数
@@ -65,8 +66,10 @@ def get_model(
         return DocumentGAT(in_channels, hidden_channels, out_channels, heads=4)
     elif model_name == "gcn":
         return DocumentGNN(in_channels, hidden_channels, out_channels)
+    elif model_name == "gin":
+        return DocumentGIN(in_channels, hidden_channels, out_channels)
     else:
-        raise ValueError(f"未知模型: {model_name}，可选: 'gcn', 'gat'")
+        raise ValueError(f"未知模型: {model_name}，可选: 'gcn', 'gat', 'gin'")
 
 
 # ============================================================
@@ -141,85 +144,73 @@ class GraphDataset(Dataset):
         return shard[local_idx]
 
 
-def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save_interval: int = 100):
+def _ensure_ocr_cache(
+    data_dir: str,
+    classes: list,
+    ocr_cache_dir: str,
+    save_interval: int = 100,
+):
     """
-    准备训练数据，将每个文档转换为 PyG Data 对象
-    支持断点续跑：每 save_interval 张保存一次，中断后可从缓存恢复
+    构建/加载 OCR 缓存，仅处理新增文件，供所有边策略共享复用。
 
-    Args:
-        data_dir: 训练数据目录
-        classes: 类别列表（决定 class_to_idx 映射）
-        cache_dir: 缓存目录，默认 data_dir/../cache
-        save_interval: 每多少张保存一次
+    缓存内容: 第一次运行 OCR 得到的结果（regions, tables, doc 尺寸等），
+    不含边信息。不同边策略只需在此结果上重新建边。
+
+    Returns:
+        ocr_data: dict[file_key, {regions, tables, doc_width, doc_height, label}]
     """
     import pickle
 
-    data_type = "验证集" if "val" in data_dir else "训练集"
-
+    os.makedirs(ocr_cache_dir, exist_ok=True)
+    cache_file = os.path.join(ocr_cache_dir, "ocr_results.pkl")
     classification_service = ClassificationService(document_classes=classes)
 
-    # 设置缓存目录
-    if cache_dir is None:
-        cache_dir = os.path.join(os.path.dirname(data_dir), "cache")
-    os.makedirs(cache_dir, exist_ok=True)
+    ocr_data = {}
+    done_files = set()
 
-    # 从缓存加载已处理的数据
-    cache_file = os.path.join(cache_dir, "processed_data.pkl")
-    processed_files = set()
-    dataset = []
-
+    # 尝试从缓存恢复
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "rb") as f:
-                cached_data = pickle.load(f)
-                dataset = cached_data.get("dataset", [])
-                processed_files = set(cached_data.get("processed_files", []))
-            print(f"  从缓存恢复: {len(dataset)} 个样本, {len(processed_files)} 个文件已处理")
+                cached = pickle.load(f)
+                ocr_data = cached.get("ocr_data", {})
+                done_files = set(cached.get("done_files", []))
+            print(f"  从 OCR 缓存恢复: {len(ocr_data)} 个文件")
         except Exception as e:
-            print(f"  缓存加载失败: {e}，重新开始")
-            dataset = []
-            processed_files = set()
-    else:
-        print(f"\n{'='*60}")
-        print(f"  未检测到缓存，开始准备 {data_type} 数据")
-        print(f"  数据目录: {data_dir}")
-        print(f"{'='*60}")
+            print(f"  OCR 缓存加载失败: {e}，重新构建")
 
+    # 统计待处理文件
     total_new = 0
-
     for class_name in sorted(os.listdir(data_dir)):
         class_dir = os.path.join(data_dir, class_name)
         if not os.path.isdir(class_dir):
             continue
-
         if class_name not in classification_service.class_to_idx:
-            print(f"  [跳过] 未知类别: {class_name}")
             continue
         label = classification_service.class_to_idx[class_name]
 
-        file_list = [
-            f
-            for f in os.listdir(class_dir)
+        file_list = sorted([
+            f for f in os.listdir(class_dir)
             if f.lower().endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
-        ]
-        file_list.sort()
+        ])
+        pending = [f for f in file_list if os.path.join(class_name, f) not in done_files]
+        if not pending:
+            continue
 
-        # 过滤掉已处理的文件
-        pending_files = [f for f in file_list if os.path.join(class_name, f) not in processed_files]
-        if len(pending_files) < len(file_list):
-            print(f"  [{class_name}] 找到 {len(file_list)} 个文件, {len(pending_files)} 个待处理")
+        if len(pending) < len(file_list):
+            print(f"  [{class_name}] {len(pending)} 个待处理, {len(file_list) - len(pending)} 个已缓存")
         else:
-            print(f"  [{class_name}] 找到 {len(file_list)} 个文件")
+            print(f"  [{class_name}] {len(file_list)} 个文件")
 
-        for idx, filename in enumerate(pending_files):
+        for filename in pending:
             file_path = os.path.join(class_dir, filename)
             file_key = os.path.join(class_name, filename)
-            print(f"    处理: {filename}...", end=" ")
+            print(f"    OCR: {filename}...", end=" ")
 
             try:
-                doc_id = f"train_{class_name}_{filename}"
+                doc_id = f"ocr_{class_name}_{filename}"
 
-                # macOS 上 PaddleOCR 可能无法直接处理 .tif，转为 .png 兼容
+                # macOS TIFF 兼容: 转 PNG
                 actual_file_path = file_path
                 tmp_png = None
                 if filename.lower().endswith((".tif", ".tiff")):
@@ -235,51 +226,130 @@ def prepare_train_data(data_dir: str, classes: list, cache_dir: str = None, save
 
                 ocr_result = ocr_service.process_document(actual_file_path, filename, doc_id)
 
-                # 清理临时文件
                 if tmp_png and os.path.exists(tmp_png.name):
                     os.unlink(tmp_png.name)
 
                 doc_width = float(ocr_result.width) if ocr_result.width else 0
                 doc_height = float(ocr_result.height) if ocr_result.height else 0
 
-                graph = classification_service._build_graph(
-                    ocr_result.regions,
-                    ocr_result.tables,
-                    doc_width=doc_width,
-                    doc_height=doc_height,
-                )
-
-                if graph["num_nodes"] == 0:
-                    print("跳过（无有效节点）")
-                    processed_files.add(file_key)
-                    continue
-
-                data = Data(
-                    x=torch.tensor(graph["node_features"], dtype=torch.float32),
-                    edge_index=torch.tensor(graph["edges"], dtype=torch.long),
-                    y=torch.tensor([label], dtype=torch.long),
-                )
-                dataset.append(data)
-                processed_files.add(file_key)
+                ocr_data[file_key] = {
+                    "regions": ocr_result.regions,
+                    "tables": ocr_result.tables,
+                    "doc_width": doc_width,
+                    "doc_height": doc_height,
+                    "label": label,
+                }
+                done_files.add(file_key)
                 total_new += 1
-                print(
-                    f"OK [{len(dataset)}] (节点: {graph['num_nodes']}, 边: {graph['edges'].shape[1] if graph['edges'].size > 0 else 0})"
-                )
+                print(f"OK (已累计 {total_new} 个)")
 
-                # 每 save_interval 张保存一次缓存
                 if total_new % save_interval == 0:
                     with open(cache_file, "wb") as f:
-                        pickle.dump({"dataset": dataset, "processed_files": list(processed_files)}, f)
-                    print(f"  [自动保存] 已处理 {len(dataset)} 个样本")
+                        pickle.dump({"ocr_data": ocr_data, "done_files": list(done_files)}, f)
+                    print(f"  [OCR 自动保存] 已处理 {len(ocr_data)} 个文件")
 
             except Exception as e:
                 print(f"失败: {e}")
 
-    # 最终保存
     if total_new > 0:
         with open(cache_file, "wb") as f:
-            pickle.dump({"dataset": dataset, "processed_files": list(processed_files)}, f)
-        print(f"  [最终保存] 共 {len(dataset)} 个样本")
+            pickle.dump({"ocr_data": ocr_data, "done_files": list(done_files)}, f)
+        print(f"\n  [OCR 缓存完成] 共 {len(ocr_data)} 个文件")
+
+    return ocr_data
+
+
+def prepare_train_data(
+    data_dir: str,
+    classes: list,
+    cache_dir: str = None,
+    save_interval: int = 100,
+    edge_strategy: str = "spatial",
+    ocr_cache_dir: str = None,
+):
+    """
+    准备训练数据: 复用 OCR 缓存 + 按边策略建图。
+
+    流程:
+    1. 确保 OCR 缓存存在（只跑一次 OCR）
+    2. 按当前 edge_strategy 建边 → 保存策略级缓存
+    3. 返回 PyG Data 对象列表
+
+    Args:
+        data_dir: 训练数据目录
+        classes: 类别列表
+        cache_dir: 策略缓存目录，默认 data_dir/../cache_{strategy}
+        save_interval: 每多少张保存一次
+        edge_strategy: 边构建策略
+        ocr_cache_dir: OCR 缓存目录，默认 data_dir/../cache_base
+    """
+    import pickle
+
+    # Step 1: OCR 缓存（所有边策略共享，按 train/val 分开）
+    if ocr_cache_dir is None:
+        split_name = os.path.basename(os.path.normpath(data_dir))  # "train" 或 "val"
+        ocr_cache_dir = os.path.join(os.path.dirname(data_dir), f"cache_base_{split_name}")
+    ocr_data = _ensure_ocr_cache(data_dir, classes, ocr_cache_dir, save_interval)
+
+    if not ocr_data:
+        print("错误: OCR 缓存为空，没有可处理的文件。")
+        return []
+
+    # Step 2: 策略级缓存（按 edge_strategy 建边）
+    if cache_dir is None:
+        suffix = f"cache_{edge_strategy}" if edge_strategy != "spatial" else "cache"
+        cache_dir = os.path.join(os.path.dirname(data_dir), suffix)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_file = os.path.join(cache_dir, "processed_data.pkl")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "rb") as f:
+                cached = pickle.load(f)
+            dataset = cached.get("dataset", [])
+            print(f"  策略缓存命中 ({edge_strategy}): {len(dataset)} 个样本")
+            return dataset
+        except Exception as e:
+            print(f"  策略缓存加载失败: {e}，重新构建")
+
+    # Step 3: 从 OCR 缓存建边
+    data_type = "验证集" if "val" in data_dir else "训练集"
+    print(f"\n  从 OCR 缓存构建 {data_type} 图 (边策略: {edge_strategy})...")
+
+    classification_service = ClassificationService(document_classes=classes)
+    dataset = []
+    processed_files = []
+    total_new = 0
+
+    for file_key, info in ocr_data.items():
+        graph = classification_service._build_graph(
+            info["regions"],
+            info["tables"],
+            doc_width=info["doc_width"],
+            doc_height=info["doc_height"],
+            edge_strategy=edge_strategy,
+        )
+
+        if graph["num_nodes"] == 0:
+            processed_files.append(file_key)
+            continue
+
+        data = Data(
+            x=torch.tensor(graph["node_features"], dtype=torch.float32),
+            edge_index=torch.tensor(graph["edges"], dtype=torch.long),
+            y=torch.tensor([info["label"]], dtype=torch.long),
+        )
+        dataset.append(data)
+        processed_files.append(file_key)
+        total_new += 1
+
+        if total_new % max(1, len(ocr_data) // 10) == 0:
+            print(f"    进度: {total_new}/{len(ocr_data)} ({graph['num_nodes']} 节点, {graph['edges'].shape[1] if graph['edges'].size > 0 else 0} 边)")
+
+    # 保存策略缓存
+    with open(cache_file, "wb") as f:
+        pickle.dump({"dataset": dataset, "processed_files": processed_files}, f)
+    print(f"  策略缓存已保存 ({edge_strategy}): {len(dataset)} 个样本\n")
 
     return dataset
 
@@ -724,18 +794,21 @@ def _generate_plots(
 # ============================================================
 
 
-def run_comparison(dataset: list, val_dataset: list = None, **kwargs):
+def run_comparison(dataset: list, val_dataset: list = None, model_names: list = None, **kwargs):
     """
-    运行 GCN vs GAT 对比实验
+    运行模型对比实验
 
-    两个模型使用完全相同的数据划分和随机种子，确保公平对比。
+    所有模型使用完全相同的数据划分和随机种子，确保公平对比。
     """
+    if model_names is None:
+        model_names = ["gcn", "gat"]
+
     print("\n" + "=" * 60)
-    print("  对比实验: GCN vs GAT")
+    print(f"  对比实验: {' vs '.join(m.upper() for m in model_names)}")
     print("=" * 60)
 
     results = {}
-    for model_name in ["gcn", "gat"]:
+    for model_name in model_names:
         print(f"\n{'#'*60}")
         print(f"  开始训练: {model_name.upper()}")
         print(f"{'#'*60}\n")
@@ -751,17 +824,21 @@ def run_comparison(dataset: list, val_dataset: list = None, **kwargs):
     print("\n" + "=" * 60)
     print("  对比实验结果")
     print("=" * 60)
-    print(f"{'指标':<20} {'GCN':<15} {'GAT':<15}")
-    print("-" * 50)
-    print(
-        f"{'最佳验证集 Loss':<20} {results['gcn']['best_val_loss']:<15.4f} {results['gat']['best_val_loss']:<15.4f}"
-    )
-    print(
-        f"{'最佳验证集 Acc':<20} {results['gcn']['best_val_acc']:<15.4f} {results['gat']['best_val_acc']:<15.4f}"
-    )
-    print(
-        f"{'训练轮数':<20} {results['gcn']['total_epochs']:<15} {results['gat']['total_epochs']:<15}"
-    )
+    header = f"{'指标':<20}"
+    sep = "-" * (20 + 15 * len(model_names))
+    for m in model_names:
+        header += f" {m.upper():<15}"
+    print(header)
+    print(sep)
+    for metric, label in [("best_val_loss", "最佳验证集 Loss"), ("best_val_acc", "最佳验证集 Acc"), ("total_epochs", "训练轮数")]:
+        row = f"{label:<20}"
+        for m in model_names:
+            val = results[m][metric]
+            if isinstance(val, float):
+                row += f" {val:<15.4f}"
+            else:
+                row += f" {val:<15}"
+        print(row)
     print("=" * 60)
 
     # 保存对比结果
@@ -784,8 +861,8 @@ if __name__ == "__main__":
         "--model",
         type=str,
         default="both",
-        choices=["gcn", "gat", "both"],
-        help="训练哪个模型: gcn / gat / both(对比实验)",
+        choices=["gcn", "gat", "gin", "both", "all"],
+        help="训练哪个模型: gcn / gat / gin / both(gcn+gat) / all(gcn+gat+gin)",
     )
     parser.add_argument(
         "--dataset",
@@ -812,6 +889,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--in-memory", action="store_true", help="全量加载到内存（服务器大内存场景，速度更快）"
     )
+    parser.add_argument(
+        "--edge-strategy",
+        type=str,
+        default="spatial",
+        choices=["spatial", "reading_order", "same_row_col", "hybrid", "all"],
+        help="图构建边策略: spatial / reading_order / same_row_col / hybrid / all(全部策略)",
+    )
     args = parser.parse_args()
 
     # 确定数据集和类别
@@ -837,140 +921,149 @@ if __name__ == "__main__":
         print(f"  可用数据集: {list(settings.DATASETS.keys())}")
         sys.exit(1)
 
-    set_seed(42)
+    EDGE_STRATEGIES = (
+        ["spatial", "reading_order", "hybrid"]
+        if args.edge_strategy == "all"
+        else [args.edge_strategy]
+    )
 
-    # 始终先准备数据（自动跳过已处理文件，处理新增文件）
-    print("\n开始准备训练数据...")
-    dataset = prepare_train_data(data_dir, classes)
+    for edge_strategy in EDGE_STRATEGIES:
+        print(f"\n\n{'='*60}")
+        print(f"  开始边策略实验: {edge_strategy}")
+        print(f"{'='*60}")
 
-    # 检查是否需要生成分片缓存（节省内存）
-    default_cache_dir = os.path.join(os.path.dirname(data_dir), "cache")
-    pkl_file = os.path.join(default_cache_dir, "processed_data.pkl")
-    shard_files = [
-        f for f in os.listdir(default_cache_dir)
-        if f.startswith("shard_") and f.endswith(".pt")
-    ] if os.path.isdir(default_cache_dir) else []
+        set_seed(42)
 
-    # 如果没有分片，或 pkl 比分片更新，自动生成分片
-    need_shard = False
-    if not shard_files:
-        need_shard = True
-    elif os.path.exists(pkl_file):
-        pkl_mtime = os.path.getmtime(pkl_file)
-        shard_mtime = max(os.path.getmtime(os.path.join(default_cache_dir, f)) for f in shard_files)
-        if pkl_mtime > shard_mtime:
-            need_shard = True
-            print("  检测到 pkl 已更新，重新生成分片...")
+        # 始终先准备数据（自动跳过已处理文件，处理新增文件）
+        print(f"\n开始准备训练数据... (边策略: {edge_strategy})")
+        dataset = prepare_train_data(data_dir, classes, edge_strategy=edge_strategy)
 
-    if need_shard and os.path.exists(pkl_file):
-        import pickle as _pkl
-        print("  正在生成分片缓存...")
-        # 先删除所有旧分片（避免残留）
-        old_shards = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
-        for old_shard in old_shards:
-            os.remove(os.path.join(default_cache_dir, old_shard))
-        # 强制刷新文件系统缓存（macOS/Linux）
-        os.sync()
-        # 验证删除成功
-        remaining = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
-        if remaining:
-            print(f"  [警告] 仍有 {len(remaining)} 个分片未删除，强制删除...")
-            for r in remaining:
-                os.remove(os.path.join(default_cache_dir, r))
-            os.sync()
-        if old_shards:
-            print(f"  已删除 {len(old_shards)} 个旧分片")
-        with open(pkl_file, "rb") as f:
-            cached = _pkl.load(f)
-        all_data = cached.get("dataset", [])
-        SHARD_SIZE = 1000
-        for i in range(0, len(all_data), SHARD_SIZE):
-            shard = all_data[i:i + SHARD_SIZE]
-            shard_path = os.path.join(default_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
-            torch.save(shard, shard_path)
-        print(f"  分片完成: {len(all_data)} 个样本 → {(len(all_data) + SHARD_SIZE - 1) // SHARD_SIZE} 个分片")
-        shard_files = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
-
-    if shard_files:
-        dataset = GraphDataset(default_cache_dir, in_memory=args.in_memory)
-        print(f"  使用按需加载模式: {len(dataset)} 个训练样本（内存占用低）")
-    else:
-        print(f"\n共准备 {len(dataset)} 个训练样本")
-
-    # 准备验证集数据（如果存在 val 目录）
-    val_dataset = None
-    if args.dataset:
-        val_dir = ds_config.get("val_dir")
-    else:
-        val_dir = None
-    if val_dir and os.path.isdir(val_dir):
-        # 验证集用独立缓存目录（避免和训练集混淆）
-        val_cache_dir = os.path.join(os.path.dirname(val_dir), "cache", "val")
-        val_shard_files = [
-            f for f in os.listdir(val_cache_dir)
+        # 检查是否需要生成分片缓存（节省内存）
+        cache_suffix = f"cache_{edge_strategy}" if edge_strategy != "spatial" else "cache"
+        default_cache_dir = os.path.join(os.path.dirname(data_dir), cache_suffix)
+        pkl_file = os.path.join(default_cache_dir, "processed_data.pkl")
+        shard_files = [
+            f for f in os.listdir(default_cache_dir)
             if f.startswith("shard_") and f.endswith(".pt")
-        ] if os.path.isdir(val_cache_dir) else []
+        ] if os.path.isdir(default_cache_dir) else []
 
-        # 检查是否需要生成分片（pkl 比分片新或没有分片）
-        val_pkl_file = os.path.join(val_cache_dir, "processed_data.pkl")
-        need_val_shard = False
-        if not val_shard_files:
-            need_val_shard = True
-        elif os.path.exists(val_pkl_file):
-            pkl_mtime = os.path.getmtime(val_pkl_file)
-            shard_mtime = max(os.path.getmtime(os.path.join(val_cache_dir, f)) for f in val_shard_files)
+        # 如果没有分片，或 pkl 比分片更新，自动生成分片
+        need_shard = False
+        if not shard_files:
+            need_shard = True
+        elif os.path.exists(pkl_file):
+            pkl_mtime = os.path.getmtime(pkl_file)
+            shard_mtime = max(os.path.getmtime(os.path.join(default_cache_dir, f)) for f in shard_files)
             if pkl_mtime > shard_mtime:
-                need_val_shard = True
-                print("  检测到验证集 pkl 已更新，重新生成分片...")
+                need_shard = True
+                print("  检测到 pkl 已更新，重新生成分片...")
 
-        if need_val_shard and os.path.exists(val_pkl_file):
+        if need_shard and os.path.exists(pkl_file):
             import pickle as _pkl
-            print("  正在生成验证集分片缓存...")
-            with open(val_pkl_file, "rb") as f:
+            print("  正在生成分片缓存...")
+            old_shards = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+            for old_shard in old_shards:
+                os.remove(os.path.join(default_cache_dir, old_shard))
+            os.sync()
+            remaining = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+            if remaining:
+                print(f"  [警告] 仍有 {len(remaining)} 个分片未删除，强制删除...")
+                for r in remaining:
+                    os.remove(os.path.join(default_cache_dir, r))
+                os.sync()
+            if old_shards:
+                print(f"  已删除 {len(old_shards)} 个旧分片")
+            with open(pkl_file, "rb") as f:
                 cached = _pkl.load(f)
             all_data = cached.get("dataset", [])
             SHARD_SIZE = 1000
-            # 删除旧分片
-            for old_shard in val_shard_files:
-                os.remove(os.path.join(val_cache_dir, old_shard))
             for i in range(0, len(all_data), SHARD_SIZE):
                 shard = all_data[i:i + SHARD_SIZE]
-                shard_path = os.path.join(val_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
+                shard_path = os.path.join(default_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
                 torch.save(shard, shard_path)
             print(f"  分片完成: {len(all_data)} 个样本 → {(len(all_data) + SHARD_SIZE - 1) // SHARD_SIZE} 个分片")
-            val_shard_files = [f for f in os.listdir(val_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
+            shard_files = [f for f in os.listdir(default_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
 
-        if val_shard_files:
-            print(f"\n  检测到验证集分片缓存 ({len(val_shard_files)} 个分片)")
-            val_dataset = GraphDataset(val_cache_dir, in_memory=args.in_memory)
-            print(f"  共 {len(val_dataset)} 个验证样本（按需加载）")
+        if shard_files:
+            dataset = GraphDataset(default_cache_dir, in_memory=args.in_memory)
+            print(f"  使用按需加载模式: {len(dataset)} 个训练样本（内存占用低）")
         else:
-            print("\n开始准备验证数据...")
-            val_dataset = prepare_train_data(val_dir, classes, cache_dir=val_cache_dir)
-            print(f"共准备 {len(val_dataset)} 个验证样本")
+            print(f"\n共准备 {len(dataset)} 个训练样本")
 
-    print()
+        # 准备验证集数据（如果存在 val 目录）
+        val_dataset = None
+        if args.dataset:
+            val_dir = ds_config.get("val_dir")
+        else:
+            val_dir = None
+        if val_dir and os.path.isdir(val_dir):
+            val_cache_dir = os.path.join(os.path.dirname(val_dir), cache_suffix, "val")
+            val_pkl_file = os.path.join(val_cache_dir, "processed_data.pkl")
+            val_shard_files = [
+                f for f in os.listdir(val_cache_dir)
+                if f.startswith("shard_") and f.endswith(".pt")
+            ] if os.path.isdir(val_cache_dir) else []
 
-    # 生成带时间戳的输出目录
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(args.output_dir, f"gnn_{timestamp}")
+            need_val_shard = False
+            if not val_shard_files:
+                need_val_shard = True
+            elif os.path.exists(val_pkl_file):
+                pkl_mtime = os.path.getmtime(val_pkl_file)
+                shard_mtime = max(os.path.getmtime(os.path.join(val_cache_dir, f)) for f in val_shard_files)
+                if pkl_mtime > shard_mtime:
+                    need_val_shard = True
+                    print("  检测到验证集 pkl 已更新，重新生成分片...")
 
-    train_kwargs = {
-        "classes": classes,
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "learning_rate": args.lr,
-        "patience": args.patience,
-        "output_dir": output_dir,
-        "resume": args.resume,
-    }
+            if need_val_shard and os.path.exists(val_pkl_file):
+                import pickle as _pkl
+                print("  正在生成验证集分片缓存...")
+                with open(val_pkl_file, "rb") as f:
+                    cached = _pkl.load(f)
+                all_data = cached.get("dataset", [])
+                SHARD_SIZE = 1000
+                for old_shard in val_shard_files:
+                    os.remove(os.path.join(val_cache_dir, old_shard))
+                for i in range(0, len(all_data), SHARD_SIZE):
+                    shard = all_data[i:i + SHARD_SIZE]
+                    shard_path = os.path.join(val_cache_dir, f"shard_{i // SHARD_SIZE:05d}.pt")
+                    torch.save(shard, shard_path)
+                print(f"  分片完成: {len(all_data)} 个样本 → {(len(all_data) + SHARD_SIZE - 1) // SHARD_SIZE} 个分片")
+                val_shard_files = [f for f in os.listdir(val_cache_dir) if f.startswith("shard_") and f.endswith(".pt")]
 
-    if not dataset:
-        print("错误: 没有有效的训练数据，请检查数据目录。")
-        sys.exit(1)
+            if val_shard_files:
+                print(f"\n  检测到验证集分片缓存 ({len(val_shard_files)} 个分片)")
+                val_dataset = GraphDataset(val_cache_dir, in_memory=args.in_memory)
+                print(f"  共 {len(val_dataset)} 个验证样本（按需加载）")
+            else:
+                print("\n开始准备验证数据...")
+                val_dataset = prepare_train_data(val_dir, classes, cache_dir=val_cache_dir, edge_strategy=edge_strategy)
+                print(f"共准备 {len(val_dataset)} 个验证样本")
 
-    if args.model == "both":
-        run_comparison(dataset, val_dataset=val_dataset, **train_kwargs)
-    else:
-        train_model(args.model, dataset, val_dataset=val_dataset, **train_kwargs)
+        print()
+
+        # 生成带时间戳的输出目录
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        strategy_suffix = f"_{edge_strategy}" if args.edge_strategy == "all" else ""
+        output_dir = os.path.join(args.output_dir, f"gnn{strategy_suffix}_{timestamp}")
+
+        train_kwargs = {
+            "classes": classes,
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.lr,
+            "patience": args.patience,
+            "output_dir": output_dir,
+            "resume": args.resume,
+        }
+
+        if not dataset:
+            print("错误: 没有有效的训练数据，请检查数据目录。")
+            sys.exit(1)
+
+        if args.model == "both":
+            run_comparison(dataset, val_dataset=val_dataset, **train_kwargs)
+        elif args.model == "all":
+            run_comparison(dataset, val_dataset=val_dataset, model_names=["gcn", "gat", "gin"], **train_kwargs)
+        else:
+            train_model(args.model, dataset, val_dataset=val_dataset, **train_kwargs)

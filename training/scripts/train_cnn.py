@@ -545,6 +545,11 @@ if __name__ == "__main__":
         print("错误: 请指定 --dataset 或 --data-dir")
         sys.exit(1)
 
+    # 生成带时间戳的输出目录
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(args.output_dir, f"cnn_{timestamp}")
+
     train_cnn(
         data_dir=data_dir,
         classes=classes,
@@ -554,6 +559,6 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         learning_rate=args.lr,
         patience=args.patience,
-        output_dir=os.path.join(args.output_dir, "cnn"),
+        output_dir=output_dir,
         resume=args.resume,
     )

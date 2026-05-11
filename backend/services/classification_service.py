@@ -1,6 +1,7 @@
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
+import json
 from backend.schemas.classification import ClassificationRequest, ClassificationResponse
 from typing import List, Dict, Any, Optional, Tuple
 from backend.schemas.ocr import OCRRegion, TableRegion, TableCell
@@ -11,6 +12,18 @@ import torch
 
 # 导入深度学习模型
 from backend.models.deep_learning.gnn_model import DocumentGNN
+from backend.models.deep_learning.gat_model import DocumentGAT
+from backend.models.deep_learning.gin_model import DocumentGIN
+
+REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "pretrained", "registry.json")
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models", "pretrained")
+
+# 模型架构工厂
+MODEL_FACTORY = {
+    "gcn": lambda in_c, h_c, out_c: DocumentGNN(in_c, h_c, out_c),
+    "gat": lambda in_c, h_c, out_c: DocumentGAT(in_c, h_c, out_c, heads=4),
+    "gin": lambda in_c, h_c, out_c: DocumentGIN(in_c, h_c, out_c),
+}
 
 
 class ClassificationService:
@@ -20,52 +33,101 @@ class ClassificationService:
         self.text_encoder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         self.use_sentence_transformer = True
         print("SentenceTransformer 模型初始化成功")
-        # 文档类别（支持外部传入，默认从全局配置读取）
+
+        # 文档类别
         self.document_classes = (
             document_classes if document_classes else settings.DOCUMENT_CLASSES
         )
-        # 类别到索引的映射
         self.class_to_idx = {cls: i for i, cls in enumerate(self.document_classes)}
         self.idx_to_class = {i: cls for i, cls in enumerate(self.document_classes)}
 
-        # 版面类型编码表（PP-StructureV3 layout_det_res 的 label 值）
-        # 用于将 region_type 转为 one-hot 向量，作为节点特征的一部分
+        # 版面类型编码
         self.layout_types = [
-            "text",
-            "title",
-            "figure",
-            "caption",
-            "header",
-            "footer",
-            "table",
-            "reference",
-            "equation",
-            "general",
+            "text", "title", "figure", "caption", "header",
+            "footer", "table", "reference", "equation", "general",
         ]
         self.layout_type_to_idx = {t: i for i, t in enumerate(self.layout_types)}
-        self.spatial_dim = 4  # 空间特征维度
-        self.layout_type_dim = len(self.layout_types)  # 版面类型 one-hot 维度
-        self.text_embed_dim = 384  # SentenceTransformer 输出维度
+        self.spatial_dim = 4
+        self.layout_type_dim = len(self.layout_types)
+        self.text_embed_dim = 384
 
-        # 加载训练好的模型
-        self.trained_model = None
-        self._load_trained_model()
+        # 模型注册表和缓存
+        self.registry: Dict[str, dict] = {}
+        self._loaded_models: Dict[str, torch.nn.Module] = {}
+        self._load_registry()
 
     @property
     def in_channels(self) -> int:
-        """节点特征总维度 = 文本嵌入 + 空间特征 + 版面类型 one-hot"""
         return self.text_embed_dim + self.spatial_dim + self.layout_type_dim
 
+    def list_models(self) -> List[Dict[str, Any]]:
+        """返回所有可用模型列表（给前端 API 使用）"""
+        models = []
+        for mid, info in self.registry.items():
+            models.append({
+                "model_id": mid,
+                "name": info["name"],
+                "model_type": info["model_type"],
+                "edge_strategy": info["edge_strategy"],
+                "description": info["description"],
+                "loaded": mid in self._loaded_models,
+            })
+        return models
+
+    def _load_registry(self):
+        """加载模型注册表"""
+        if os.path.exists(REGISTRY_PATH):
+            with open(REGISTRY_PATH, "r") as f:
+                self.registry = json.load(f)
+            print(f"模型注册表已加载，共 {len(self.registry)} 个模型")
+        else:
+            print(f"警告: 未找到模型注册表 {REGISTRY_PATH}")
+
+        # 默认加载最优模型
+        default_id = "gcn_reading_order"
+        self._get_model(default_id)
+
+    def _get_model(self, model_id: str) -> Optional[torch.nn.Module]:
+        """按 model_id 加载并缓存模型"""
+        if model_id in self._loaded_models:
+            return self._loaded_models[model_id]
+
+        info = self.registry.get(model_id)
+        if info is None:
+            print(f"未知模型: {model_id}")
+            return None
+
+        model_path = os.path.join(MODELS_DIR, info["file"])
+        if not os.path.exists(model_path):
+            print(f"模型文件不存在: {model_path}")
+            return None
+
+        try:
+            model_type = info["model_type"]
+            in_c = info.get("in_channels", self.in_channels) or self.in_channels
+            h_c = info.get("hidden_channels", 128) or 128
+            out_c = len(self.document_classes)
+
+            factory = MODEL_FACTORY.get(model_type)
+            if factory is None:
+                print(f"不支持的模型类型: {model_type}")
+                return None
+
+            model = factory(in_c, h_c, out_c)
+            model.load_state_dict(
+                torch.load(model_path, map_location="cpu", weights_only=True)
+            )
+            model.eval()
+            self._loaded_models[model_id] = model
+            print(f"模型加载成功: {model_id} ({model_path})")
+            return model
+        except Exception as e:
+            print(f"模型加载失败 [{model_id}]: {e}")
+            return None
+
+    # ── 以下方法保持不变 ──────────────────────────────────
+
     def _encode_layout_type(self, region_type: str) -> np.ndarray:
-        """
-        将版面类型编码为 one-hot 向量
-
-        Args:
-            region_type: 版面类型标签，如 "title", "text", "figure" 等
-
-        Returns:
-            one-hot 向量，长度为 layout_type_dim
-        """
         one_hot = np.zeros(self.layout_type_dim, dtype=np.float32)
         idx = self.layout_type_to_idx.get(
             region_type, self.layout_type_to_idx.get("general", 0)
@@ -76,29 +138,17 @@ class ClassificationService:
     def _extract_spatial_features(
         self, box: List[float], doc_width: float, doc_height: float
     ) -> np.ndarray:
-        """
-        提取归一化的空间特征
-
-        使用文档宽高进行归一化，使不同分辨率的文档具有一致的空间表示。
-        特征: [相对中心x, 相对中心y, 相对宽度, 相对高度]
-        """
         center_x = float(box[0] + box[2]) / 2
         center_y = float(box[1] + box[3]) / 2
         width = float(box[2] - box[0])
         height = float(box[3] - box[1])
 
-        # 用文档尺寸归一化，得到 0~1 范围的相对坐标
         if float(doc_width) > 0 and float(doc_height) > 0:
-            spatial_features = np.array(
-                [
-                    center_x / doc_width,
-                    center_y / doc_height,
-                    width / doc_width,
-                    height / doc_height,
-                ]
-            )
+            spatial_features = np.array([
+                center_x / doc_width, center_y / doc_height,
+                width / doc_width, height / doc_height,
+            ])
         else:
-            # 兜底：无文档尺寸信息时，用图内最大值归一化
             spatial_features = np.array([center_x, center_y, width, height])
             max_val = np.max(spatial_features)
             if max_val > 0:
@@ -107,7 +157,6 @@ class ClassificationService:
         return spatial_features
 
     def _build_spatial_edges(self, boxes, doc_width, doc_height):
-        """边策略1: 原始空间距离阈值法，距离 < 对角线 15% 的连接"""
         edges = []
         if len(boxes) < 2:
             return edges
@@ -133,24 +182,13 @@ class ClassificationService:
         return edges
 
     def _build_reading_order_edges(self, boxes):
-        """
-        边策略2: 阅读顺序连接
-
-        模拟文档的阅读顺序（从上到下、从左到右）:
-        1. 按 y 坐标将区域分组到同一"行"
-        2. 行内按 x 坐标从左到右排序
-        3. 连接阅读顺序上相邻的区域
-        """
         if len(boxes) < 2:
             return []
 
-        # 估算行高（用区域高度的中位数的一半作为行内 y 容差）
         heights = [box[3] - box[1] for box in boxes]
         median_height = float(np.median(heights)) if heights else 1.0
         row_threshold = max(median_height * 0.5, 1.0)
 
-        # 为每个区域计算 (row_key, x_center, index)
-        # row_key = floor(center_y / row_threshold)，将相近 y 的区域归入同一行
         indexed = []
         for i, box in enumerate(boxes):
             cx = (box[0] + box[2]) / 2.0
@@ -158,10 +196,8 @@ class ClassificationService:
             row_key = int(cy / row_threshold)
             indexed.append((row_key, cx, i))
 
-        # 按 (行, 列) 排序 = 阅读顺序
         indexed.sort(key=lambda x: (x[0], x[1]))
 
-        # 连接排序后相邻的区域
         edges = []
         sorted_indices = [item[2] for item in indexed]
         for k in range(len(sorted_indices) - 1):
@@ -172,12 +208,6 @@ class ClassificationService:
         return edges
 
     def _build_same_row_col_edges(self, boxes):
-        """
-        边策略3: 同行/同列连接
-
-        连接在同一行（y 轴重叠大）或同一列（x 轴重叠大）的区域对，
-        用于捕捉文档中的表格、多栏等布局结构。
-        """
         if len(boxes) < 2:
             return []
 
@@ -186,7 +216,6 @@ class ClassificationService:
             for j in range(i + 1, len(boxes)):
                 box_i, box_j = boxes[i], boxes[j]
 
-                # 计算 y 轴重叠比例（判断是否同行）
                 y_overlap = min(box_i[3], box_j[3]) - max(box_i[1], box_j[1])
                 if y_overlap > 0:
                     y_i_height = box_i[3] - box_i[1]
@@ -196,7 +225,6 @@ class ClassificationService:
                 else:
                     y_iou = 0
 
-                # 计算 x 轴重叠比例（判断是否同列）
                 x_overlap = min(box_i[2], box_j[2]) - max(box_i[0], box_j[0])
                 if x_overlap > 0:
                     x_i_width = box_i[2] - box_i[0]
@@ -213,20 +241,13 @@ class ClassificationService:
         return edges
 
     def _build_hybrid_edges(self, boxes, doc_width, doc_height):
-        """
-        边策略4: 混合策略
+        all_edges = []
+        all_edges.extend(self._build_spatial_edges(boxes, doc_width, doc_height))
+        all_edges.extend(self._build_reading_order_edges(boxes))
+        all_edges.extend(self._build_same_row_col_edges(boxes))
 
-        取 spatial + reading_order + same_row_col 三种边的并集，
-        去重后返回。
-        """
-        all = []
-        all.extend(self._build_spatial_edges(boxes, doc_width, doc_height))
-        all.extend(self._build_reading_order_edges(boxes))
-        all.extend(self._build_same_row_col_edges(boxes))
-
-        # 去重（以 (min, max) 为 key）
         edge_set = set()
-        for u, v in all:
+        for u, v in all_edges:
             if u < v:
                 edge_set.add((u, v))
 
@@ -243,27 +264,13 @@ class ClassificationService:
         tables: Optional[List[TableRegion]] = None,
         doc_width: Optional[float] = None,
         doc_height: Optional[float] = None,
-        edge_strategy: str = "spatial",
+        edge_strategy: str = "reading_order",
     ) -> Dict[str, Any]:
-        """
-        构建图结构
-
-        节点特征 = 文本嵌入(384) + 空间特征(4) + 版面类型 one-hot(10) = 398 维
-        边策略由 edge_strategy 参数控制
-
-        Args:
-            edge_strategy: 边构建策略
-                - "spatial": 原始空间距离阈值法
-                - "reading_order": 阅读顺序连接
-                - "same_row_col": 同行/同列连接
-                - "hybrid": 上述三种的并集
-        """
         doc_width = float(doc_width) if doc_width else 0
         doc_height = float(doc_height) if doc_height else 0
         node_features = []
         all_boxes = []
 
-        # 构建文本区域节点
         for region in regions:
             text_embedding = self.text_encoder.encode(
                 region.text, convert_to_tensor=False
@@ -279,7 +286,6 @@ class ClassificationService:
             node_features.append(node_feature)
             all_boxes.append(box)
 
-        # 构建表格区域节点
         if tables:
             for table in tables:
                 table_text = ""
@@ -302,7 +308,6 @@ class ClassificationService:
                 node_features.append(node_feature)
                 all_boxes.append(box)
 
-        # 根据策略构建边
         strategy_map = {
             "spatial": self._build_spatial_edges,
             "reading_order": self._build_reading_order_edges,
@@ -328,39 +333,13 @@ class ClassificationService:
         }
 
     def _calculate_distance(self, box1, box2) -> float:
-        """计算两个文本框中心点之间的欧氏距离"""
         center1 = [(float(box1[0]) + float(box1[2])) / 2, (float(box1[1]) + float(box1[3])) / 2]
         center2 = [(float(box2[0]) + float(box2[2])) / 2, (float(box2[1]) + float(box2[3])) / 2]
         return float(np.sqrt((center1[0] - center2[0]) ** 2 + (center1[1] - center2[1]) ** 2))
 
-    def _load_trained_model(self):
-        """加载训练好的GNN模型"""
-        import os
-
-        model_path = "training/models/gnn_model.pth"
-        if os.path.exists(model_path):
-            try:
-                hidden_channels = 128
-                out_channels = len(self.document_classes)
-
-                self.trained_model = DocumentGNN(
-                    self.in_channels, hidden_channels, out_channels
-                )
-                self.trained_model.load_state_dict(
-                    torch.load(model_path, map_location="cpu", weights_only=True)
-                )
-                self.trained_model.eval()
-                print(f"加载训练好的GNN模型成功 (in_channels={self.in_channels})")
-            except Exception as e:
-                print(f"加载模型失败: {e}")
-                self.trained_model = None
-        else:
-            print("未找到训练好的模型，使用默认模型")
-
     def _graph_classification(
-        self, graph: Dict[str, Any], model=None
+        self, graph: Dict[str, Any], model: torch.nn.Module
     ) -> Dict[str, Any]:
-        """图分类 (使用 GNN)"""
         node_features = graph["node_features"]
         edges = graph["edges"]
         num_nodes = graph["num_nodes"]
@@ -372,12 +351,6 @@ class ClassificationService:
         edge_index = torch.tensor(edges, dtype=torch.long)
         batch = torch.zeros(num_nodes, dtype=torch.long)
 
-        if model is None:
-            in_channels = x.shape[1]
-            hidden_channels = 128
-            out_channels = len(self.document_classes)
-            model = DocumentGNN(in_channels, hidden_channels, out_channels)
-
         with torch.no_grad():
             output = model(x, edge_index, batch)
             probabilities = torch.softmax(output, dim=1)
@@ -386,18 +359,32 @@ class ClassificationService:
 
         return {"predicted_class": predicted_class, "confidence": confidence.item()}
 
-    def predict(self, request: ClassificationRequest) -> ClassificationResponse:
-        """深度学习特征预处理与推理核心枢纽"""
+    def predict(
+        self, request: ClassificationRequest, model_id: str = "gcn_reading_order"
+    ) -> ClassificationResponse:
         regions: List[OCRRegion] = request.ocr_regions
         tables: Optional[List[TableRegion]] = request.tables
-        self.regions = regions
 
-        graph = self._build_graph(regions, tables)
+        # 获取模型信息和对应的边策略
+        info = self.registry.get(model_id)
+        if info is None:
+            raise ValueError(f"未知模型: {model_id}")
 
-        if self.trained_model is not None:
-            result = self._graph_classification(graph, self.trained_model)
-        else:
-            result = self._graph_classification(graph)
+        # 根据 model_id 选择边策略
+        edge_strategy = info.get("edge_strategy", "reading_order") or "reading_order"
+
+        # 构建图
+        graph = self._build_graph(
+            regions, tables,
+            edge_strategy=edge_strategy,
+        )
+
+        # 获取模型
+        model = self._get_model(model_id)
+        if model is None:
+            raise RuntimeError(f"模型加载失败: {model_id}")
+
+        result = self._graph_classification(graph, model)
 
         return ClassificationResponse(
             document_id=request.document_id,

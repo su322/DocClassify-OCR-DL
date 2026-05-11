@@ -15,7 +15,11 @@
             <h2>上传文档</h2>
             <form id="upload-form">
                 <input type="file" id="document-upload" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff" required>
-                <button type="submit">开始分类</button>
+                <div class="model-selector">
+                    <label for="model-select">分类模型：</label>
+                    <select id="model-select"></select>
+                </div>
+                <button type="submit" id="submit-btn">开始分类</button>
             </form>
             <div id="upload-status" class="status"></div>
         </div>

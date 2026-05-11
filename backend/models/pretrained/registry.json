@@ -1,0 +1,92 @@
+{
+  "gcn_reading_order": {
+    "name": "GCN (阅读顺序)",
+    "model_type": "gcn",
+    "edge_strategy": "reading_order",
+    "file": "gcn_reading_order.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GCN + 阅读顺序边策略，综合性能最优"
+  },
+  "gcn_spatial": {
+    "name": "GCN (空间距离)",
+    "model_type": "gcn",
+    "edge_strategy": "spatial",
+    "file": "gcn_spatial.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GCN + 空间距离阈值建边"
+  },
+  "gcn_hybrid": {
+    "name": "GCN (混合策略)",
+    "model_type": "gcn",
+    "edge_strategy": "hybrid",
+    "file": "gcn_hybrid.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GCN + 三种策略的并集"
+  },
+  "gat_reading_order": {
+    "name": "GAT (阅读顺序)",
+    "model_type": "gat",
+    "edge_strategy": "reading_order",
+    "file": "gat_reading_order.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GAT + 阅读顺序边策略"
+  },
+  "gat_spatial": {
+    "name": "GAT (空间距离)",
+    "model_type": "gat",
+    "edge_strategy": "spatial",
+    "file": "gat_spatial.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GAT + 空间距离阈值建边"
+  },
+  "gat_hybrid": {
+    "name": "GAT (混合策略)",
+    "model_type": "gat",
+    "edge_strategy": "hybrid",
+    "file": "gat_hybrid.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GAT + 三种策略的并集"
+  },
+  "gin_reading_order": {
+    "name": "GIN (阅读顺序)",
+    "model_type": "gin",
+    "edge_strategy": "reading_order",
+    "file": "gin_reading_order.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GIN + 阅读顺序边策略"
+  },
+  "gin_spatial": {
+    "name": "GIN (空间距离)",
+    "model_type": "gin",
+    "edge_strategy": "spatial",
+    "file": "gin_spatial.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GIN + 空间距离阈值建边"
+  },
+  "gin_hybrid": {
+    "name": "GIN (混合策略)",
+    "model_type": "gin",
+    "edge_strategy": "hybrid",
+    "file": "gin_hybrid.pth",
+    "in_channels": 398,
+    "hidden_channels": 128,
+    "description": "GIN + 三种策略的并集"
+  },
+  "cnn": {
+    "name": "CNN (ResNet18)",
+    "model_type": "cnn",
+    "edge_strategy": null,
+    "file": "cnn.pth",
+    "in_channels": null,
+    "hidden_channels": null,
+    "description": "ResNet18 像素级分类基线（需单独处理流程）"
+  }
+}

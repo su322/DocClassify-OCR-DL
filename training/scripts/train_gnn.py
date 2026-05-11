@@ -923,7 +923,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     EDGE_STRATEGIES = (
-        ["spatial", "reading_order", "hybrid"]
+        ["spatial", "reading_order", "same_row_col", "hybrid"]
         if args.edge_strategy == "all"
         else [args.edge_strategy]
     )

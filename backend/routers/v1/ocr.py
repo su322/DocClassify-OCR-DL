@@ -107,10 +107,13 @@ async def process_document(file: UploadFile = File(...), db: Session = Depends(g
     description="上传文档，自动完成 OCR 解析和分类",
 )
 async def classify_document(
-    file: UploadFile = File(...), db: Session = Depends(get_db)
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    model_id: str = "gcn_reading_order",
 ):
     """
     完整流程：上传文档 → OCR 解析 → 分类 → 返回结果
+    支持通过 model_id 参数选择模型（如 gcn_reading_order, gat_spatial 等）
     """
     temp_file_path = _handle_file_upload(file)
 
@@ -126,11 +129,13 @@ async def classify_document(
             temp_file_path, file.filename, document_id=doc_id
         )
 
-        # 2. 调用分类服务进行分类
+        # 2. 调用分类服务进行分类（传入 model_id）
         classification_request = ClassificationRequest(
             document_id=doc_id, ocr_regions=ocr_result.regions, tables=ocr_result.tables
         )
-        classification_result = classification_service.predict(classification_request)
+        classification_result = classification_service.predict(
+            classification_request, model_id=model_id
+        )
 
         # 3. 更新数据库记录
         ocr_results_dict = [region.model_dump() for region in ocr_result.regions]

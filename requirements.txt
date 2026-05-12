@@ -6,6 +6,7 @@ pydantic-settings
 # pip install -r 安装的可能是旧版本，可能会出现兼容性问题
 # 我在AutoDL上使用的：python -m pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
 paddlepaddle-gpu
+# cpu版叫paddlepaddle
 paddleocr[all]
 paddlex[ocr]
 
